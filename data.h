@@ -84,5 +84,5 @@ class Player {
         int currentRoom;                        // 当前所在房间的编号
         int towerProgress[4];                   // 每个塔的进度 0=未通关，1=已通关（下标0=北，1=西，2=南，3=东）
     public:
-        Player()
+        Player();
 };
