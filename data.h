@@ -48,23 +48,33 @@ private:
 
 public:
     // 构造函数：所有数据由外部传入
+    // 构造函数：创建一个宠物对象，初始化名称、属性、技能和战斗参数
     Pet(const std::string& name, const std::string& type, int level,
         const std::string& s1, const std::string& s2, const std::string& s3,
         int hp, int maxHp, int attack, int dodging,
         int skill1EffectValue, int skill2EffectValue, int skill3EffectValue);
 
     // ---- Getter ----
+    // 获取宠物名称
     std::string getName() const;
+    // 获取宠物属性类型（火/水/草）
     std::string getType() const;
+    // 获取技能1名称
     std::string getSkillName1() const { return skillName1; }
+    // 获取技能2名称
     std::string getSkillName2() const { return skillName2; }
+    // 获取技能3名称
     std::string getSkillName3() const { return skillName3; }
+    // 获取宠物等级
     int getLevel() const;
     int getSkillLevel1() const;
     int getSkillLevel2() const;
     int getSkillLevel3() const;
+    // 获取当前经验值
     int getExp() const;
+    // 获取当前生命值
     int getHp() const;
+    // 获取最大生命值
     int getMaxHp() const;
     // 攻击力 = 基础攻击 * (1 + tempAttackBuff/100)
     int getAttack() const { return attack * (100 + tempAttackBuff) / 100; }
@@ -77,18 +87,31 @@ public:
     bool alive() const;
 
     // ---- 核心修改 ----
+    // 宠物升级
     void levelUp();
+    // 技能1升级
     void skill1LevelUp();
+    // 技能2升级
     void skill2LevelUp();
+    // 技能3升级
     void skill3LevelUp();
+    // 受到伤害并更新生命状态
     void takeDamage(int damage);
+    // 清除临时攻击和闪避BUFF
     void resetBuff();
+    // 回复生命值
     void heal(int amount);
+    // 增加经验，达到条件自动升级
     void addExp(int exp);
+    // 使用技能1攻击目标
     void useSkill1(Pet& target);
+    // 使用技能2辅助自身
     void useSkill2(Pet& target);
+    // 使用技能3进行高伤害攻击
     void useSkill3(Pet& target);
+    // 增加技能能量
     void gainEnergy(int amount);
+    // 消耗技能能量
     void reduceEnergy(int amount);
     void addTempAttackBuff(int amount);   // amount 为百分比数值
     void addTempDodgeBuff(int amount);    // amount 为百分比数值
@@ -111,17 +134,24 @@ private:
     int towerProgress[5];   // 下标1~4分别对应北西南东
 
 public:
+    // 构造函数：创建玩家并初始化金币、队伍和地图状态
     Player(const std::string& name, int startingGold = 0);
 
+    // 获取宠物名称
     std::string getName() const;
 
     // ---- 金币 ----
+    // 获取金币数量
     int getGold() const;
+    // 增加金币
     void addGold(int amount);
+    // 消耗金币，成功返回true
     bool spendGold(int amount);
 
     // ---- 宠物 ----
+    // 添加宠物到队伍
     void addPet(const Pet& pet);
+    // 根据名称删除宠物
     void removePet(const std::string& petName);
     const std::vector<Pet>& getTeam() const;
     int findPetIndex(const std::string& petName) const;
@@ -133,13 +163,18 @@ public:
 
     // ---- 背包 ----
     const std::vector<Item>& getBag() const;
+    // 添加物品到背包
     void addItem(const Item& item);
+    // 消耗指定数量物品
     bool consumeItem(const std::string& itemName, int count = 1);
     int findItemIndex(const std::string& itemName) const;
+    // 删除指定数量物品
     void removeItem(const std::string& itemName, int count = 1);
 
     // ---- 塔和房间 ----
+    // 获取指定塔的通关进度
     int getTowerProgress(int towerId) const;    // towerId: 1~4
+    // 设置指定塔的通关进度
     void setTowerProgress(int towerId, int progress);
     int getCurrentTower() const;
     void setCurrentTower(int towerId);

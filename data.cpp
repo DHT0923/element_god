@@ -9,6 +9,7 @@ using namespace std;
 // Pet 类实现
 // ============================================================
 
+// Pet构造函数：初始化宠物全部数据
 Pet::Pet(const string& name, const string& type, int level,
          const string& s1, const string& s2, const string& s3,
          int hp, int maxHp, int attack, int dodging,
@@ -47,7 +48,8 @@ void Pet::skill2LevelUp() { if (skillLevel2 < 5) ++skillLevel2; }
 void Pet::skill3LevelUp() { if (skillLevel3 < 5) ++skillLevel3; }
 
 // ----- 受伤 -----
-void Pet::takeDamage(int damage) {
+void // 接口：宠物受到伤害
+Pet::takeDamage(int damage) {
     if (damage < 0) return;
     hp -= damage;
     if (hp <= 0) {
@@ -57,7 +59,8 @@ void Pet::takeDamage(int damage) {
 }
 
 // ----- 治疗 -----
-void Pet::heal(int amount) {
+void // 接口：宠物回血
+Pet::heal(int amount) {
     if (amount < 0) return;
     hp += amount;
     if (hp > maxHp) hp = maxHp;
@@ -65,7 +68,8 @@ void Pet::heal(int amount) {
 }
 
 // ----- 增加经验 -----
-void Pet::addExp(int exp) {
+void // 接口：增加经验并处理升级
+Pet::addExp(int exp) {
     this->exp += exp;
     while (this->exp >= expForLevel(level) && level < 100) {
         this->exp -= expForLevel(level);
@@ -112,13 +116,16 @@ void Pet::addTempDodgeBuff(int amount) {
 }
 
 // ----- 技能1：伤害技 -----
-void Pet::useSkill1(Pet& target) {
-    int damage = calcDamage(*this, target, 1);
+void // 接口：使用技能1攻击
+Pet::useSkill1(Pet& target) {
+    int damage = // 全局接口：计算战斗伤害
+calcDamage(*this, target, 1);
     target.takeDamage(damage);
 }
 
 // ----- 技能2：辅助技（火加攻%，水加闪避，草回血%）-----
-void Pet::useSkill2(Pet& target) {
+void // 接口：使用技能2辅助
+Pet::useSkill2(Pet& target) {
     (void)target;   // 忽略目标，只作用于自己
     if (type == "火") {
         int percent = 15 + 5 * skillLevel2;   // 20%~40%
@@ -139,7 +146,8 @@ void Pet::useSkill2(Pet& target) {
 }
 
 // ----- 技能3：消耗3能量，高伤害 -----
-void Pet::useSkill3(Pet& target) {
+void // 接口：使用技能3攻击
+Pet::useSkill3(Pet& target) {
     if (energyPoints < 3) {
         cout << name << " 能量不足（需要3点），无法使用 " << skillName3 << "！" << endl;
         return;
@@ -158,6 +166,7 @@ int Pet::expForLevel(int level) {
 // Player 类实现
 // ============================================================
 
+// 玩家构造函数
 Player::Player(const string& name, int startingGold)
     : name(name), gold(startingGold), currentTower(0), currentRoom(0) {
     for (int i = 0; i < 5; ++i) towerProgress[i] = 0;
@@ -175,7 +184,8 @@ bool Player::spendGold(int amount) {
 }
 
 // ---- 宠物 ----
-void Player::addPet(const Pet& pet) {
+void // 接口：添加宠物
+Player::addPet(const Pet& pet) {
     team.push_back(pet);
 }
 
@@ -231,7 +241,8 @@ void Player::resetAllPetsBuff() {
 // ---- 背包 ----
 const vector<Item>& Player::getBag() const { return bag; }
 
-void Player::addItem(const Item& item) {
+void // 接口：添加背包物品
+Player::addItem(const Item& item) {
     auto it = find_if(bag.begin(), bag.end(),
         [&item](const Item& i) { return i.name == item.name; });
     if (it != bag.end()) {
@@ -333,7 +344,8 @@ int calcDamage(const Pet& attacker, const Pet& defender, int skillType) {
     return damage;
 }
 
-void showHpBar(const Pet& pet) {
+void // 全局接口：显示宠物血条
+showHpBar(const Pet& pet) {
     const int barWidth = 20;
     int filled = static_cast<int>((double)pet.getHp() / pet.getMaxHp() * barWidth);
     if (filled < 0) filled = 0;
