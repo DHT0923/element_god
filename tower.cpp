@@ -1,9 +1,5 @@
+#include "tower.h"
 #include <iostream>
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <conio.h>
-#include <windows.h>
 
 using namespace std;
 
@@ -121,72 +117,4 @@ void renderTowerMap(int playerX, int playerY) {
     gotoxy(0, 28);
     cout << "W↑ S↓ A← D→ 移动 | [Q]撤离" << endl;
     setColor(7);
-}
-
-// ================== 主程序 ==================
-int main() {
-    SetConsoleTitle(L"精灵世界地图");
-
-    int mainX = 2, mainY = 2;
-    int towerX = 1, towerY = 0; // 出生在奇遇房
-
-    bool inTower = false;
-    bool running = true;
-
-    while (running) {
-        if (!inTower) {
-            renderMainMap(mainX, mainY);
-            char key = tolower(_getch());
-
-            if (key == 'w' && mainY > 0) mainY -= 2;
-            else if (key == 's' && mainY < 4) mainY += 2;
-            else if (key == 'a' && mainX > 0) mainX -= 2;
-            else if (key == 'd' && mainX < 4) mainX += 2;
-
-            else if (key == '1') {
-                if ((mainX == 2 && mainY == 0) || (mainX == 0 && mainY == 2) ||
-                    (mainX == 2 && mainY == 4) || (mainX == 4 && mainY == 2)) {
-                    inTower = true;
-                    towerX = 1;
-                    towerY = 0; // 进塔出生在奇遇
-                }
-            }
-            else if (key == 'q') {
-                running = false;
-            }
-        }
-        else {
-            renderTowerMap(towerX, towerY);
-            char key = tolower(_getch());
-
-            // 死锁路线控制
-            if (key == 'w') {
-                if (towerY == 1 && towerX == 1) towerY = 0; // 小怪回奇遇
-                else if (towerY == 1 && towerX == 0) towerX = 1; // 左侧回主线小怪
-                else if (towerY == 2) towerY = 1; // 奇遇回小怪
-                else if (towerY == 3) towerY = 2; // BOSS回奇遇
-            }
-            else if (key == 's') {
-                if (towerY == 0) towerY = 1; // 奇遇到小怪
-                else if (towerY == 1 && towerX == 1) towerY = 2; // 主线小怪到奇遇
-                else if (towerY == 1 && towerX == 0) { /* 左侧分支不能向下 */ }
-                else if (towerY == 2) towerY = 3; // 奇遇到BOSS
-            }
-            else if (key == 'a') {
-                if (towerX == 1 && towerY == 1) towerX = 0; // 主线小怪去左侧分支
-            }
-            else if (key == 'd') {
-                if (towerX == 0 && towerY == 1) towerX = 1; // 左侧小怪回主线
-            }
-
-            else if (key == 'q') {
-                inTower = false;
-                mainX = 2; mainY = 2;
-            }
-        }
-    }
-
-    clearScreen();
-    cout << "感谢游玩，再见!" << endl;
-    return 0;
 }
