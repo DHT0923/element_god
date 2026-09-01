@@ -5,11 +5,8 @@
 #include <vector>
 #include <algorithm>
 
-// --- 辅助函数：安全的字符串转整数 ---
-// 防止存档被手动修改成乱码导致 stoi 崩溃
 int safeStoi(const std::string& str, int fallback = 0) {
     try {
-        // 去除可能的回车符
         std::string trimmed = str;
         trimmed.erase(std::remove(trimmed.begin(), trimmed.end(), '\r'), trimmed.end());
         return std::stoi(trimmed);
@@ -18,109 +15,69 @@ int safeStoi(const std::string& str, int fallback = 0) {
     }
 }
 
-//--核心实现：保存游戏 
-void saveGame(Player& player){
-	std::ofstream out(kSaveFileName);
-	if(!out.is_open()){
-		std::cout<<">>错误：无法创建存档文件"<<std::endl;
-		return; 
-	}
-}
-    //写入文件头 
-    out << "# CppPetGame Save v1" << std::endl
-    
-    // 2. 写入 Player 基础数据
+void saveGame(Player& player) {
+    std::ofstream out(kSaveFileName);
+    if (!out.is_open()) {
+        std::cout << ">> 错误：无法创建存档文件" << std::endl;
+        return;
+    }
+    out << "# CppPetGame Save v1" << std::endl;
     out << "PlayerName " << player.name << std::endl;
-    out << "Money " << player.money << std::endl;
-    
-    // 3. 写入塔进度状态 (替代旧的全局变量 northClear 等)
-    // 使用 player 内部的数组和变量
+    out << "Gold " << player.gold << std::endl;
     out << "CurrentTower " << player.currentTower << std::endl;
     out << "CurrentRoom " << player.currentRoom << std::endl;
-    
-    out << "TowerProgress " << player.towerProgress[0] << " " 
-                           << player.towerProgress[1] << " " 
-                           << player.towerProgress[2] << " " 
-                           << player.towerProgress[3] << std::endl;
-    
-    
-    
-    // 4. 写入背包数据
+    out << "TowerProgress";
+    for (int i = 0; i < 5; ++i)
+        out << " " << player.towerProgress[i];
+    out << std::endl;
+
     out << "BagSize " << player.bag.size() << std::endl;
     for (const auto& item : player.bag) {
-        // Item 结构体假设包含 name, quantity, price 等
-        out << "Item " << item.name << " " << item.quantity << " " << item.price << std::endl;
-    }
-    
-    // 5. 写入精灵队伍数据
-    out << "TeamSize " << player.team.size() << std::endl;
-    for (const auto& pet : player.team) {
-        // Pet 是私有成员，但本函数是 friend，所以可以直接访问
-       
-		//Pet [名字] [属性] [等级]
-		// [HP] [MaxHP] [Attack] [Dodging] [Exp] [Alive] [技能等级1-3]
-	      out << "Pet " 
-            << pet.name << " " 
-            << pet.type << " " 
-            << pet.level << " "
-            << pet.hp << " " 
-            << pet.maxHp << " " 
-            << pet.attack << " "
-            << pet.dodging << " " // 适配字段名变更
-            << pet.exp << " "
-            << (pet.alive ? 1 : 0) << " " // 适配 isAlive -> alive
-            << pet.skillLevel1 << " "
-            << pet.skillLevel2 << " "
-            << pet.skillLevel3 << std::endl;
+        out << "Item " << item.name << " " << item.quantity << " "
+            << item.effectValue << " " << item.price << std::endl;
     }
 
+    out << "TeamSize " << player.team.size() << std::endl;
+    for (const auto& pet : player.team) {
+        out << "Pet " << pet.name << " " << pet.type << " " << pet.level << " "
+            << pet.hp << " " << pet.maxHp << " " << pet.attack << " "
+            << pet.dodging << " " << pet.skill1EffectValue << " "
+            << pet.skill2EffectValue << " " << pet.skill3EffectValue << " "
+            << pet.exp << " " << pet.energyPoints << " "
+            << (pet.isAlive ? 1 : 0) << " "
+            << pet.skillLevel1 << " " << pet.skillLevel2 << " "
+            << pet.skillLevel3 << " "
+            << pet.skillName1 << " " << pet.skillName2 << " "
+            << pet.skillName3 << std::endl;
+    }
     out.close();
     std::cout << ">> 游戏已保存。" << std::endl;
 }
-	// --- 核心实现：读取游戏 ---
-   bool loadGame(Player& player) {
+
+bool loadGame(Player& player) {
     std::ifstream in(kSaveFileName);
     if (!in.is_open()) {
-        return false; // 文件不存在
+        return false;
     }
-    
-    //--- 原子性加载策略 ---
-    // 1. 创建临时变量存储读取的数据
-    Player tempPlayer; 
-    // 清空 tempPlayer 的 team 和 bag
-    tempPlayer.team.clear();
-    tempPlayer.bag.clear();
-    tempPlayer.money = 0;
-    tempPlayer.currentTower = 0;
-    tempPlayer.currentRoom = 0;
-    
-    // 初始化塔进度为0
-    for(int i=0; i<4; ++i) tempPlayer.towerProgress[i] = 0;
 
+    Player tempPlayer("");
     std::string line;
-    int lineCount = 0;
-    
-    // 用于校验的数据
     int expectedBagSize = 0;
     int expectedTeamSize = 0;
 
     while (std::getline(in, line)) {
-        lineCount++;
         std::istringstream iss(line);
         std::string key;
         iss >> key;
-
-        // 跳过注释和空行
         if (key.empty() || key[0] == '#') continue;
-
         try {
             if (key == "PlayerName") {
                 std::string name; iss >> name;
                 tempPlayer.name = name;
-            } 
-            else if (key == "Money") {
+            }
+            else if (key == "Gold") {
                 std::string val; iss >> val;
-                tempPlayer.money = safeStoi(val);
+                tempPlayer.gold = safeStoi(val);
             }
             else if (key == "CurrentTower") {
                 std::string val; iss >> val;
@@ -131,12 +88,10 @@ void saveGame(Player& player){
                 tempPlayer.currentRoom = safeStoi(val);
             }
             else if (key == "TowerProgress") {
-                // 读取 4 个整数
-                for(int i=0; i<4; ++i) {
-                    std::string val; 
-                    if(iss >> val) {
+                for (int i = 0; i < 5; ++i) {
+                    std::string val;
+                    if (iss >> val)
                         tempPlayer.towerProgress[i] = safeStoi(val);
-                    }
                 }
             }
             else if (key == "BagSize") {
@@ -144,12 +99,12 @@ void saveGame(Player& player){
                 expectedBagSize = safeStoi(val);
             }
             else if (key == "Item") {
-                // 读取 Item 数据
-                std::string iName, iQtyStr, iPriceStr;
-                if (iss >> iName >> iQtyStr >> iPriceStr) {
+                std::string iName, iQtyStr, iEvStr, iPriceStr;
+                if (iss >> iName >> iQtyStr >> iEvStr >> iPriceStr) {
                     Item item;
                     item.name = iName;
                     item.quantity = safeStoi(iQtyStr);
+                    item.effectValue = safeStoi(iEvStr);
                     item.price = safeStoi(iPriceStr);
                     tempPlayer.bag.push_back(item);
                 }
@@ -159,50 +114,41 @@ void saveGame(Player& player){
                 expectedTeamSize = safeStoi(val);
             }
             else if (key == "Pet") {
-                // 读取 Pet 数据
-                // 顺序：Name Type Level HP MaxHP Atk Dodge Exp Alive S1 S2 S3
-                std::string pName, pType, pLvl, pHp, pMaxHp, pAtk, pDodge, pExp, pAlive, pS1, pS2, pS3;
-                if (iss >> pName >> pType >> pLvl >> pHp >> pMaxHp >> pAtk >> pDodge >> pExp >> pAlive >> pS1 >> pS2 >> pS3) {
-                    
-                    // 1. 先用构造函数创建对象 (必须步骤)
-                    // 注意：Pet 构造函数可能需要 name, type, level
-                    Pet newPet(pName, pType, safeStoi(pLvl));
-                    
-                    // 2. 利用 Friend 权限，手动覆盖其他私有成员
-                    // 因为构造函数可能只初始化了部分值，或者我们需要恢复存档时的精确状态
-                    newPet.hp = safeStoi(pHp);
-                    newPet.maxHp = safeStoi(pMaxHp);
-                    newPet.attack = safeStoi(pAtk);
-                    newPet.dodging = safeStoi(pDodge);
+                std::string pName, pType, pLvl, pHp, pMaxHp, pAtk, pDodge;
+                std::string pS1EV, pS2EV, pS3EV, pExp, pEP, pAlive;
+                std::string pSL1, pSL2, pSL3;
+                std::string pSN1, pSN2, pSN3;
+                if (iss >> pName >> pType >> pLvl >> pHp >> pMaxHp >> pAtk >> pDodge
+                        >> pS1EV >> pS2EV >> pS3EV >> pExp >> pEP >> pAlive
+                        >> pSL1 >> pSL2 >> pSL3 >> pSN1 >> pSN2 >> pSN3) {
+                    Pet newPet(pName, pType, safeStoi(pLvl),
+                               pSN1, pSN2, pSN3,
+                               safeStoi(pHp), safeStoi(pMaxHp),
+                               safeStoi(pAtk), safeStoi(pDodge),
+                               safeStoi(pS1EV), safeStoi(pS2EV), safeStoi(pS3EV));
                     newPet.exp = safeStoi(pExp);
-                    newPet.alive = (safeStoi(pAlive) == 1);
-                    newPet.skillLevel1 = safeStoi(pS1);
-                    newPet.skillLevel2 = safeStoi(pS2);
-                    newPet.skillLevel3 = safeStoi(pS3);
-                    
-                    // 3. 加入队伍
+                    newPet.energyPoints = safeStoi(pEP);
+                    newPet.isAlive = (safeStoi(pAlive) == 1);
+                    newPet.skillLevel1 = safeStoi(pSL1);
+                    newPet.skillLevel2 = safeStoi(pSL2);
+                    newPet.skillLevel3 = safeStoi(pSL3);
                     tempPlayer.team.push_back(newPet);
                 }
             }
         } catch (...) {
-            // 解析过程中出现任何异常，视为损坏
             in.close();
             return false;
         }
     }
     in.close();
 
-    // --- 校验数据一致性 ---
-    if (tempPlayer.bag.size() != expectedBagSize || tempPlayer.team.size() != expectedTeamSize) {
-        return false; // 数量对不上，说明存档损坏
+    if (static_cast<int>(tempPlayer.bag.size()) != expectedBagSize ||
+        static_cast<int>(tempPlayer.team.size()) != expectedTeamSize) {
+        return false;
     }
     if (tempPlayer.team.empty() && tempPlayer.name.empty()) {
-        return false; // 空存档
+        return false;
     }
-
-    // --- 提交更改 ---
-    // 只有全部读取并校验成功，才将 tempPlayer 的数据赋值给真正的 player
     player = tempPlayer;
-    
     return true;
 }
