@@ -184,7 +184,7 @@ void runTower(int towerId, Player& player) {
         }
         else if (roomType == ROOM_GOLD) {
             cout << "金币房间！获得 100 金币！" << endl;
-            player.money += 100;
+            player.gold += 100;
         }
 
         curRoomIdx++;
