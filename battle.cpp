@@ -1,306 +1,122 @@
 #include "battle.h"
+#include <algorithm>
 #include <iostream>
-#include <random>
-#include <chrono>
-#include <thread>
+#include <limits>
 
-// 跨平台延时
-static void msleep(int ms)
-{
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-}
-
-// 跨平台清屏
-#if defined(_WIN32) || defined(_WIN64)
-#define BATTLE_CLS system("cls")
-#else
-#define BATTLE_CLS system("clear")
-#endif
-
-void drawBattleUI(const Pet& our, const Pet& enemy, const Player& /*player*/)
-{
-    BATTLE_CLS;
-    std::cout << "==========宠物对战==========\n";
-    std::cout << "【敌方】" << enemy.getName()
-              << "  属性：" << enemy.getType()
-              << "  Lv." << enemy.getLevel() << "\n";
-    showHpBar(enemy);
-    std::cout << "能量：" << enemy.getEnergyPoints() << "\n";
-    std::cout << "----------------------------\n";
-    std::cout << "【我方】" << our.getName()
-              << "  属性：" << our.getType()
-              << "  Lv." << our.getLevel() << "\n";
-    showHpBar(our);
-    std::cout << "能量：" << our.getEnergyPoints() << "\n";
-
-    std::cout << "\n1-" << our.getSkillName1()
-              << "   2-" << our.getSkillName2()
-              << "   3-" << our.getSkillName3() << "\n";
-    std::cout << "4-使用道具  5-切换宠物  6-逃跑\n";
-    std::cout << "请输入操作数字：";
-}
-
-// 执行玩家行动
-// 返回true：行动完成，消耗回合；false：执行失败，不消耗回合
-bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player, Pet*& outActivePet)
-{
-    switch (action)
-    {
-    case ACT_SKILL1:
-        our.useSkill1(enemy);
-        return true;
-    case ACT_SKILL2:
-        our.useSkill2(enemy);
-        return true;
-    case ACT_SKILL3:
-        // 能量不足判断放在data层useSkill3内部，这里只管调用
-        our.useSkill3(enemy);
-        return true;
-    case ACT_USE_ITEM:
-    {
-        int idx;
-        std::cout << "\n输入背包物品下标：";
-        std::cin >> idx;
-        return battleUseItem(idx, our, enemy, player);
+namespace {
+// 本文件的辅助函数仅服务战斗流程，因此不暴露给其他模块。
+int readChoice(int low, int high) {
+    int choice;
+    while (!(std::cin >> choice) || choice < low || choice > high) {
+        std::cin.clear(); std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::cout << "请输入 " << low << " 到 " << high << " 的数字：";
     }
-    case ACT_SWITCH_PET:
-    {
-        int idx;
-        std::cout << "\n输入队伍宠物下标：";
-        std::cin >> idx;
-        return battleSwitchPet(idx, player, outActivePet);
-    }
-    case ACT_ESCAPE:
-        return battleTryEscape();
-    default:
-        return false;
+    return choice;
+}
+void waitEnter(const char* prompt = "按 Enter 继续") {
+    std::cout << '\n' << prompt;
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); std::cin.get();
+}
+void hpBar(int hp, int maxHp) {
+    constexpr int width = 24;
+    const int filled = maxHp ? std::max(0, hp * width / maxHp) : 0;
+    for (int i = 0; i < width; ++i) std::cout << (i < filled ? "█" : "░");
+    std::cout << ' ' << hp << '/' << maxHp;
+}
+void renderBattle(const Creature& hero, const Creature& enemy) {
+    clearScreen();
+    std::cout << "╔══════════════════ 元素对战 ══════════════════╗\n"
+              << "  我方  " << hero.name << "  [" << elementName(hero.element) << "]\n  ";
+    hpBar(hero.hp, hero.maxHp);
+    std::cout << "\n\n  敌方  " << enemy.name << "  [" << elementName(enemy.element) << "]\n  ";
+    hpBar(enemy.hp, enemy.maxHp);
+    std::cout << "\n╚═══════════════════════════════════════════════╝\n"
+              << "怒气：" << hero.battlePoints << "/3\n\n";
+}
+int rawDamage(const Creature& c) {
+    int damage = c.baseDamage + c.skillLevel * 4;
+    return c.damageBuffTurns > 0 ? damage * 3 / 2 : damage;
+}
+void attack(Creature& a, Creature& d, int base, const char* skill) {
+    if (d.dodgeBuffTurns > 0 && randomInt(1, 100) <= 35) { std::cout << d.name << " 闪避了 " << skill << "！\n"; return; }
+    const double multiplier = damageMultiplier(a.element, d.element);
+    const int damage = std::max(1, static_cast<int>(base * multiplier));
+    d.hp = std::max(0, d.hp - damage);
+    std::cout << a.name << " 使用 " << skill << "，造成 " << damage << " 点伤害";
+    if (multiplier > 1.0) std::cout << "（属性克制）";
+    if (multiplier < 1.0) std::cout << "（属性被克制）";
+    std::cout << "！\n";
+}
+void applyBuff(Creature& c) {
+    if (c.element == Element::Grass) {
+        const int add = 12 + c.skillLevel * 5; c.maxHp += add; healCreature(c, add + 15 + c.skillLevel * 4);
+        std::cout << c.name << " 获得生长祝福，生命上限提升并恢复生命。\n";
+    } else if (c.element == Element::Fire) {
+        c.damageBuffTurns = 3; std::cout << c.name << " 燃起斗志，3 回合内伤害提高。\n";
+    } else {
+        c.dodgeBuffTurns = 3; std::cout << c.name << " 化作水影，3 回合内有概率闪避。\n";
     }
 }
-
-// 敌方AI随机选择1‑3技能行动
-void enemyAiTurn(Pet& enemy, Pet& our, Player& /*player*/)
-{
-    static std::mt19937 rng((std::random_device{})());
-    std::uniform_int_distribution<int> skillRand(1, 3);
-    std::cout << "\n-----敌方行动-----\n";
-    msleep(600);
-    int select = skillRand(rng);
-    if (select == 1)
-    {
-        enemy.useSkill1(our);
+void consumeBuffs(Creature& c) {
+    if (c.damageBuffTurns > 0) --c.damageBuffTurns;
+    if (c.dodgeBuffTurns > 0) --c.dodgeBuffTurns;
+}
+int selectAlive(const Player& player) {
+    std::cout << "选择出战精灵：\n";
+    for (std::size_t i = 0; i < player.team.size(); ++i) {
+        const Creature& c = player.team[i];
+        std::cout << i + 1 << ". " << c.name << "  "; hpBar(c.hp, c.maxHp);
+        if (c.hp <= 0) std::cout << " 已倒下";
+        std::cout << '\n';
     }
-    else if (select == 2)
-    {
-        enemy.useSkill2(our);
-    }
-    else
-    {
-        enemy.useSkill3(our);
+    while (true) {
+        const int selected = readChoice(1, static_cast<int>(player.team.size())) - 1;
+        if (player.team[selected].hp > 0) return selected;
+        std::cout << "这只精灵已经倒下，请选择其他精灵。\n";
     }
 }
-
-// 使用背包道具：只实现回血，完全调用player公开接口
-bool battleUseItem(int itemIdx, Pet& target, Pet& /*enemy*/, Player& player)
-{
-    const std::vector<Item>& bag = player.getBag();
-    // 下标合法性校验
-    if (itemIdx < 0 || itemIdx >= static_cast<int>(bag.size()))
-    {
-        std::cout << "\n错误：背包下标无效！\n";
-        msleep(700);
-        return false;
-    }
-    const Item& item = bag[itemIdx];
-    // consumeItem按名字消耗，内部处理数量扣减、自动删除空条目
-    bool ok = player.consumeItem(item.name, 1);
-    if (!ok)
-    {
-        std::cout << "\n道具消耗失败！\n";
-        msleep(700);
-        return false;
-    }
-    target.heal(item.effectValue);
-    std::cout << "\n使用【" << item.name << "】，恢复 " << item.effectValue << " HP！\n";
-    msleep(700);
-    return true;
 }
 
-// 切换出战宠物；不使用const_cast，通过非const迭代器获取指针
-bool battleSwitchPet(int teamIdx, Player& player, Pet*& outActivePet)
-{
-    const std::vector<Pet>& team = player.getTeam();
-    if (teamIdx < 0 || teamIdx >= static_cast<int>(team.size()))
-    {
-        std::cout << "\n错误：队伍下标超出范围！\n";
-        msleep(700);
-        return false;
-    }
-
-    int realIdx = player.findPetIndex(team[teamIdx].getName());
-    if (realIdx == -1)
-    {
-        std::cout << "\n找不到该宠物\n";
-        msleep(700);
-        return false;
-    }
-    Pet* targetPet = nullptr;
-    {
-        int i = 0;
-        for (auto it = player.teamBegin(); it != player.teamEnd(); ++it, ++i)
-        {
-            if (i == realIdx)
-            {
-                targetPet = &(*it);
-                break;
-            }
+bool startBattle(Player& player, Creature enemy) {
+    clearScreen();
+    std::cout << "【战斗开始】敌方 " << enemy.name << " 出现！\n";
+    const int initial = selectAlive(player);
+    int active = initial;
+    bool skipPlayerTurn = false, rage = false;
+    while (hasLivingCreature(player) && enemy.hp > 0) {
+        Creature& hero = player.team[active];
+        renderBattle(hero, enemy);
+        if (skipPlayerTurn) {
+            std::cout << "草属性首领的藤蔓缠住了你，本回合被跳过！\n"; skipPlayerTurn = false;
+        } else {
+            std::cout << "1 普通攻击   2 属性增益   3 终结技(消耗3点怒气)\n"
+                      << "4 生命药水 " << player.healthPotion << "   5 力量药水 " << player.powerPotion << "\n选择：";
+            const int action = readChoice(1, 5);
+            if (action == 1) { attack(hero, enemy, rawDamage(hero), "普通攻击"); hero.battlePoints = std::min(3, hero.battlePoints + 1); }
+            else if (action == 2) { applyBuff(hero); hero.battlePoints = std::min(3, hero.battlePoints + 1); }
+            else if (action == 3 && hero.battlePoints >= 3) { attack(hero, enemy, rawDamage(hero) * 2 + 10, "终结技"); hero.battlePoints = 0; }
+            else if (action == 4 && player.healthPotion > 0) { --player.healthPotion; healCreature(hero, 55); std::cout << "使用生命药水，恢复 55 HP。\n"; }
+            else if (action == 5 && player.powerPotion > 0) { --player.powerPotion; hero.damageBuffTurns = 5; std::cout << "使用力量药水，伤害提高。\n"; }
+            else { std::cout << "条件不足，改为普通攻击。\n"; attack(hero, enemy, rawDamage(hero), "普通攻击"); hero.battlePoints = std::min(3, hero.battlePoints + 1); }
+            consumeBuffs(hero);
         }
-    }
-    if (targetPet == nullptr)
-    {
-        std::cout << "\n获取宠物指针失败\n";
-        msleep(700);
-        return false;
-    }
-    // 不能切换死亡宠物
-    if (!targetPet->alive())
-    {
-        std::cout << "\n该宠物已经阵亡，无法出战！\n";
-        msleep(700);
-        return false;
-    }
-    // 不能切换当前已经出战的宠物
-    if (outActivePet == targetPet)
-    {
-        std::cout << "\n已经是该宠物出战！\n";
-        msleep(700);
-        return false;
-    }
-
-    outActivePet = targetPet;
-    std::cout << "\n切换出战宠物 → " << targetPet->getName() << "\n";
-    msleep(700);
-    return true;
-}
-
-// 逃跑概率35%成功
-bool battleTryEscape()
-{
-    static std::mt19937 rng((std::random_device{})());
-    std::uniform_int_distribution<int> rollDist(0, 99);
-    int roll = rollDist(rng);
-    if (roll < 35)
-    {
-        std::cout << "\n逃跑成功！\n";
-        msleep(800);
-        return true;
-    }
-    std::cout << "\n逃跑失败！\n";
-    msleep(800);
-    return false;
-}
-
-// 战斗结算：胜利给经验；逃跑不清除buff，胜利/失败清除双方buff
-void battleSettle(BattleResult res, Pet& our, Pet& enemy, Player& player)
-{
-    if (res != BATTLE_ESCAPE)
-    {
-        our.resetBuff();
-        enemy.resetBuff();
-    }
-    if (res == BATTLE_WIN)
-    {
-        std::cout << "\n>>>>战斗胜利<<<<\n";
-        int expGain = enemy.getLevel() * 25;
-        our.addExp(expGain);
-        std::cout << our.getName() << " 获得 " << expGain << " 经验！\n";
-    }
-    else if (res == BATTLE_LOSE)
-    {
-        std::cout << "\n>>>>战斗失败<<<<\n";
-    }
-    msleep(1200);
-}
-
-BattleResult battle(Pet& our, Pet& enemy, Player& player)
-{
-    Pet* activePet = &our;
-    while (true)
-    {
-        // 空指针防御
-        if (activePet == nullptr)
-        {
-            battleSettle(BATTLE_LOSE, our, enemy, player);
-            return BATTLE_LOSE;
+        if (enemy.hp <= 0) break;
+        if (enemy.isBoss && enemy.element == Element::Fire && !rage && enemy.hp * 100 <= enemy.maxHp * 40) { enemy.baseDamage = enemy.baseDamage * 3 / 2; rage = true; std::cout << "敌方进入灼热暴走，伤害提高！\n"; }
+        if (enemy.isBoss && enemy.element == Element::Water && enemy.hp * 100 <= enemy.maxHp * 45) { healCreature(enemy, 18 + enemy.skillLevel * 5); std::cout << "敌方借潮汐回复生命！\n"; }
+        if (randomInt(1, 100) <= 30) applyBuff(enemy);
+        else {
+            attack(enemy, hero, rawDamage(enemy), "敌方攻击");
+            if (enemy.isBoss && enemy.element == Element::Grass && randomInt(1, 100) <= 35 && hero.hp > 0) { skipPlayerTurn = true; std::cout << "藤蔓将使你下回合无法行动！\n"; }
         }
-
-        drawBattleUI(*activePet, enemy, player);
-        int op;
-        std::cin >> op;
-        BattleAction act;
-        switch (op)
-        {
-        case 1: act = ACT_SKILL1; break;
-        case 2: act = ACT_SKILL2; break;
-        case 3: act = ACT_SKILL3; break;
-        case 4: act = ACT_USE_ITEM; break;
-        case 5: act = ACT_SWITCH_PET; break;
-        case 6: act = ACT_ESCAPE; break;
-        default:
-            std::cout << "\n无效输入，请重新选择\n";
-            msleep(600);
-            continue;
-        }
-
-        bool ret = doPlayerAction(act, *activePet, enemy, player, activePet);
-
-        // 逃跑成功直接结束战斗
-        if (act == ACT_ESCAPE && ret == true)
-        {
-            battleSettle(BATTLE_ESCAPE, *activePet, enemy, player);
-            return BATTLE_ESCAPE;
-        }
-
-        if (ret && (act == ACT_SWITCH_PET || act == ACT_USE_ITEM))
-        {
-            // 换宠、使用道具：属于完整回合，不攻击，直接能量+1，敌方行动
-            activePet->gainEnergy(1);
-            enemy.gainEnergy(1);
-            enemyAiTurn(enemy, *activePet, player);
-        }
-        else if (ret)
-        {
-            // 释放技能：我方打完，先看敌方是否死亡
-            if (!enemy.alive())
-            {
-                battleSettle(BATTLE_WIN, *activePet, enemy, player);
-                return BATTLE_WIN;
-            }
-            activePet->gainEnergy(1);
-            enemy.gainEnergy(1);
-            enemyAiTurn(enemy, *activePet, player);
-        }
-        // ret==false：行动失败，不消耗回合，直接向下走到阵亡判断，回到循环开头
-
-        // 我方出战宠物阵亡，尝试自动切换队伍下一只存活宠物
-        if (!activePet->alive())
-        {
-            std::cout << "\n" << activePet->getName() << " 倒下了！\n";
-            msleep(800);
-            int curIdx = player.findPetIndex(activePet->getName());
-            Pet* nextAlive = player.getNextAlivePet(curIdx);
-            if (nextAlive != nullptr)
-            {
-                std::cout << "派出 " << nextAlive->getName() << "！\n";
-                activePet = nextAlive;
-                msleep(800);
-                continue;
-            }
-            else
-            {
-                // 全队没有存活宠物，战斗失败
-                battleSettle(BATTLE_LOSE, *activePet, enemy, player);
-                return BATTLE_LOSE;
-            }
-        }
+        consumeBuffs(enemy);
+        if (hero.hp <= 0 && hasLivingCreature(player)) { std::cout << hero.name << " 倒下了！\n"; waitEnter("按 Enter 选择下一只精灵"); active = selectAlive(player); }
+        else if (enemy.hp > 0) waitEnter();
     }
+    clearScreen();
+    if (enemy.hp <= 0) {
+        std::cout << "╔════════ 战斗胜利 ════════╗\n你击败了 " << enemy.name << "！\n╚══════════════════════════╝\n";
+        waitEnter("按 Enter 返回塔内地图"); return true;
+    }
+    std::cout << "╔════════ 战斗失败 ════════╗\n全队精灵倒下了……元素力将送你回城镇。\n╚══════════════════════════╝\n";
+    waitEnter("按 Enter 接受元素力庇护"); return false;
 }

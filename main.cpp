@@ -1,250 +1,154 @@
-﻿#include <iostream>
-#include <limits>
-#include <windows.h>
-#include "battle.h"
 #include "data.h"
 #include "save_load.h"
 #include "tower.h"
-using namespace std;
 
-//==================== 控制台颜色，仅本文件内部 static ====================
-static void setConsoleColor(int color)
-{
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+#include <fstream>
+#include <iostream>
+#include <limits>
+
+namespace {
+// 主程序私有的城镇菜单与世界地图流程。
+int readChoice(int low, int high) {
+    int choice;
+    while (!(std::cin >> choice) || choice < low || choice > high) {
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::cout << "请输入 " << low << " 到 " << high << " 的数字：";
+    }
+    return choice;
 }
 
-//==================== 剧情输出函数，仅main.cpp内部使用 static ====================
-static void showPrologueStory()
-{
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cout << "\n==================================================" << endl;
-    cout << "                    序章：村落的嘱托                " << endl;
-    cout << "==================================================\n" << endl;
-    cout << "在宁静的元素村落中，火、水、草三种元素相融相生，滋养着整片大地，人类与元神精灵世代和睦共处。\n";
-    cout << "你机缘巧合来到此地，遇见一位白发苍苍的老者，他便是守护村落的元素长老。\n\n";
-    cout << "见你初来此地、对这片大陆一无所知，长老缓缓向你诉说尘封已久的往事：\n\n";
-    cout << R"("很久以前，世间由元素之神执掌，火、水、草三元素循环制衡，维系着整片大陆的安宁。
-可自邪祟渊主诞生之后，元素之神的力量被撕裂崩坏，神力化作三块珍贵的元神碎片，
-分别封存于火焰高塔、碧波水塔、青森草塔之中。
-如今渊主四处侵蚀三座高塔，妄图夺走全部元神碎片。一旦让他得逞，烈火将焚尽万林，
-洪水将淹没大地，世间草木尽数凋零，整个世界将彻底覆灭。
-早在多年前，渊主便降下封印，村落族人尽数被剥夺元神之力，再也无法守护这片土地。
-少年，我将仅剩的伙伴水汐蜥托付于你，愿你携它踏遍三塔，夺回元神碎片，
-斩断渊主的阴谋，拯救濒临崩坏的元素大陆。")" << "\n\n";
-    cout << "听罢长老的嘱托，你肩负起整片大陆的希望，带着初始伙伴水汐蜥，\n";
-    cout << "毅然离开了安稳的村落，踏上了闯塔寻碎片、对抗渊主的冒险之路。\n";
-    cout << "==================================================\n";
-    cout << "按下回车键继续...";
-    cin.get();
+void backpack(Player& player) {
+    clearScreen();
+    std::cout << "╔════════════ 背包 ════════════╗\n"
+              << "生命药水  " << player.healthPotion << "  恢复 55 HP\n"
+              << "力量药水  " << player.powerPotion << "  战斗中提升伤害\n"
+              << "╚══════════════════════════════╝\n";
+    printTeam(player);
+    std::cout << "选择精灵编号，输入 0 返回：";
+    int selected = readChoice(0, static_cast<int>(player.team.size()));
+    if (!selected) return;
+    int id = selected - 1;
+    std::cout << "1 使用生命药水\n2 返回\n选择：";
+    int choice = readChoice(1, 2);
+    if (choice == 2) return;
+    if (choice == 1) {
+        if (!player.healthPotion) { std::cout << "生命药水不足。\n"; return; }
+        --player.healthPotion; healCreature(player.team[id], 55); std::cout << "已使用生命药水。\n";
+    }
 }
 
-// 火焰高塔剧情
-static void showTower1Story()
-{
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cout << "\n==================================================" << endl;
-    cout << "                第一座塔：火焰高塔                  " << endl;
-    cout << "==================================================\n";
-    cout << "火焰高塔，大地熔岩翻涌。渊主的力量渗透进来，守塔元神被怒火侵蚀，性情狂暴。\n";
-    cout << "塔底Boss：炎狱狂狮（火系Boss）被渊主的怨气蛊惑，陷入狂暴。\n";
-    cout << "【被动】血量低于30%触发【火狂暴】，自身攻击力暴涨。\n";
-    cout << "\n即将开启火焰高塔的战斗……\n";
-    cout << "按下回车键继续...";
-    cin.get();
+void shop(Player& player) {
+    std::cout << "\n=== 商店（金币：" << player.gold << "）===\n1. 生命药水：20 金币\n2. 力量药水：30 金币\n3. 返回\n选择：";
+    int choice = readChoice(1, 3);
+    if (choice == 1 && player.gold >= 20) { player.gold -= 20; ++player.healthPotion; std::cout << "购买成功。\n"; }
+    else if (choice == 2 && player.gold >= 30) { player.gold -= 30; ++player.powerPotion; std::cout << "购买成功。\n"; }
+    else if (choice != 3) std::cout << "金币不足。\n";
 }
 
-// 火焰高塔通关后剧情
-static void showTower1EndStory()
-{
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cout << "\n>>> 击败炎狱狂狮！自动捕获这只Boss元神，获得【火之碎片】！\n\n";
-    cout << "NPC残魂苏醒：\"渊主已经去往碧波水塔，小心它的力量……\"\n";
-    cout << "按下回车键继续...";
-    cin.get();
+void trainer(Player& player) {
+    const int cost = 45;
+    std::cout << "\n=== 精灵培养师（升级技能需 " << cost << " 金币）===\n";
+    printTeam(player);
+    std::cout << "输入精灵编号升级，输入 0 返回：";
+    int id = readChoice(0, static_cast<int>(player.team.size()));
+    if (!id) return;
+    if (player.gold < cost) { std::cout << "金币不足。\n"; return; }
+    Creature& c = player.team[id - 1];
+    if (c.skillLevel >= 5) { std::cout << "技能已经满级。\n"; return; }
+    player.gold -= cost; ++c.skillLevel; c.baseDamage += 3;
+    std::cout << c.name << " 的技能升至 Lv." << c.skillLevel << "！\n";
 }
 
-// 碧波水塔剧情
-static void showTower2Story()
-{
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cout << "\n==================================================" << endl;
-    cout << "                第二座塔：碧波水塔                  " << endl;
-    cout << "==================================================\n";
-    cout << "巨大水下高塔，永不停歇的波涛。渊主把绝望情绪灌入守塔元神。\n";
-    cout << "塔底Boss：深渊海灵（水系Boss）。\n";
-    cout << "【被动】Boss每回合回复15点HP。它被渊主蛊惑，认为只有洪水毁灭一切才是解脱。\n";
-    cout << "\n即将开启碧波水塔的战斗……\n";
-    cout << "按下回车键继续...";
-    cin.get();
+void townMenu(Player& player) {
+    while (true) {
+        clearScreen();
+        int completed = 0; for (bool cleared : player.cleared) if (cleared) ++completed;
+        std::cout << "\n╔════════ 城镇广场 ════════╗\n"
+                  << "金币 " << player.gold << " | 高塔 " << completed << "/4\n"
+                  << "1. 查看队伍  2. 商店  3. 培养师\n"
+                  << "4. 背包  5. 保存  0. 返回地图\n"
+                  << "╚══════════════════════════╝\n选择：";
+        int choice = readChoice(0, 5);
+        if (choice == 0) return;
+        if (choice == 1) printTeam(player);
+        else if (choice == 2) shop(player);
+        else if (choice == 3) trainer(player);
+        else if (choice == 4) backpack(player);
+        else std::cout << (saveGame(player) ? "保存成功。\n" : "保存失败。\n");
+    }
 }
 
-// 碧波水塔通关后剧情
-static void showTower2EndStory()
-{
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cout << "\n>>> 击败深渊海灵！自动捕获Boss元神，获得【水之碎片】！\n\n";
-    cout << "碎片发出微光，提示你前往最后一座：青森草塔。渊主本人已经亲临那里。\n";
-    cout << "按下回车键继续...";
-    cin.get();
-}
-
-// 青森草塔剧情
-static void showTower3Story()
-{
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cout << "\n==================================================" << endl;
-    cout << "                第三座塔：青森草塔                 " << endl;
-    cout << "==================================================\n";
-    cout << "茂密巨树构建的高塔。草木本该孕育生机，渊主在这里扭曲草系元神，让草木陷入病态。\n";
-    cout << "塔底Boss：枯木古尊（草系Boss）。\n";
-    cout << "【被动】【草系禁锢】，会跳过我方一回合行动。古尊被渊主欺骗，相信“毁灭才是新生”。\n";
-    cout << "\n即将开启青森草塔的战斗……\n";
-    cout << "按下回车键继续...";
-    cin.get();
-}
-
-// 青森草塔通关后，渊主登场剧情
-static void showTower3EndAndFinalBossStory()
-{
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cout << "\n>>> 击败枯木古尊！自动捕获Boss元神，获得【草之碎片】！\n\n";
-    cout << "三块碎片汇聚在一起，渊主现身！\n\n";
-    cout << R"(渊主："可笑，你收集碎片，却不知道这些本就是我的力量。
-交出碎片，否则我将亲手终结这个世界。")" << "\n\n";
-    cout << "三块元神碎片融合，渊主借用三元素碎片力量变身，开启最终决战！\n";
-    cout << "【渊主】融合火水草三元素力量的终极Boss，会随机触发：火狂暴、水系回血、草禁锢跳过回合。\n";
-    cout << "\n即将开启最终决战！\n";
-    cout << "按下回车键继续...";
-    cin.get();
-}
-
-//==================== 完整新游戏剧情流程入口 ====================
-static void startNewGameStoryFlow()
-{
-    // 1.序章
-    showPrologueStory();
-    // 2.火焰高塔第1关剧情 + 调用tower模块开启第一塔
-    showTower1Story();
-    towerStartLevel1();    // tower模块接口：火焰高塔
-    showTower1EndStory();
-    // 3.碧波水塔第2关
-    showTower2Story();
-    towerStartLevel2();    // tower模块接口：碧波水塔
-    showTower2EndStory();
-    // 4.青森草塔第3关
-    showTower3Story();
-    towerStartLevel3();    // tower模块接口：青森草塔
-    showTower3EndAndFinalBossStory();
-    // 5.最终决战，调用tower/battle最终Boss接口
-    towerStartFinalBoss();
-    cout << "\n>>> 主线剧情全部结束！\n";
-}
-
-// 游戏指南
-static void showGameGuide()
-{
-    system("cls");
-    setConsoleColor(10);
-    cout << "==================== 游戏指南 ====================\n";
-    cout << "1.开始新游戏：从头体验完整主线剧情。\n";
-    cout << "2.继续游戏：读取存档，继续上次游戏进度。\n";
-    cout << "游戏会在关键节点自动保存，也可手动存档。\n";
-    cout << "闯过三座元素高塔，集齐元神碎片，击败渊主即可通关。\n";
-    cout << "==================================================\n";
-    setConsoleColor(7);
-    cout << "\n按下回车键返回主菜单...";
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    cin.get();
-}
-
-//==================== 主菜单：仅4项：开始新游戏、继续游戏、指南、退出 ====================
-static void printMainMenu()
-{
-    system("cls");
-    // 红色 点阵艺术大字：元神
-    setConsoleColor(12);
-    cout << "                                                        \n"
-        << "｜      ###################                #            #       \n"
-        << "｜                                  ############        #\n"
-        << "｜                                           #   ###############\n"
-        << "｜ ###############################         #     #      #      #        \n"
-        << "｜          #          #                 #       ###############     \n"
-        << "｜          #          #               # # #     #      #      # \n"
-        << "｜          #          #             #   #  #    ###############\n"
-        << "｜         #           #                 #   #          #    \n"
-        << "｜        #            #                 #              #             \n"
-        << "｜       #                ##     #       #              #              \n"
-        << "｜     #                   ######        #              #             ";
-    cout << "\n\n";
-
-    setConsoleColor(10);
-    cout << "        ***************************\n";
-    cout << "                游戏主菜单\n";
-    cout << "        ***************************\n";
-    cout << "\n";
-    cout << "        1. 开始新游戏\n";
-    cout << "        2. 继续游戏\n";
-    cout << "        3. 游戏指南\n";
-    cout << "        0. 退出游戏\n";
-    cout << "\n";
-    cout << "        请输入功能编号：";
-
-    setConsoleColor(7);
-}
-
-int main()
-{
-
-    SetConsoleOutputCP(65001);
-    SetConsoleCP(65001);
-    int select;
-
-    while (true)
-    {
-        printMainMenu();
-        cin >> select;
-
-        if (!cin)
-        {
-            cin.clear();
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cout << "\n输入格式错误，请输入数字编号！\n";
-            cout << "按回车继续...";
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+void worldMap(Player& player) {
+    // 节点坐标与参考代码一致：北(2,0) 西(0,2) 城镇(2,2) 东(4,2) 南(2,4)。
+    int x = 2, y = 2;
+    while (true) {
+        renderMainMap(x, y, player);
+        char key;
+        if (!(std::cin >> key)) return;
+        if (key >= 'A' && key <= 'Z') key = static_cast<char>(key - 'A' + 'a');
+        if (key == 'q') { saveGame(player); std::cout << "游戏已自动保存，再见！\n"; return; }
+        if (key == '1') {
+            if (x == 2 && y == 2) townMenu(player);
+            else {
+                TowerDirection target = x == 2 && y == 0 ? TowerDirection::North :
+                                        x == 0 && y == 2 ? TowerDirection::West :
+                                        x == 4 && y == 2 ? TowerDirection::East : TowerDirection::South;
+                exploreTower(player, target);
+                if (!hasLivingCreature(player)) {
+                    clearScreen();
+                    std::cout << "元素力的庇护将你送回了城镇。\n所有精灵的生命已经完全恢复。\n按 Enter 继续。";
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); std::cin.get();
+                    fullyRestoreTeam(player); x = 2; y = 2;
+                }
+            }
             continue;
         }
-
-        switch (select)
-        {
-        case 1:
-            // 开始新游戏，完整剧情流程
-            startNewGameStoryFlow();
-            cout << "\n按回车返回主菜单...";
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cin.get();
-            break;
-        case 2:
-            // 继续游戏 = 读取存档
-            loadGame();
-            cout << ">> 已加载存档，继续游戏\n";
-            cout << "按回车返回主菜单...";
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cin.get();
-            break;
-        case 3:
-            // 游戏指南
-            showGameGuide();
-            break;
-        case 0:
-            cout << "\n游戏退出，感谢游玩。\n";
-            return 0;
-        default:
-            cout << "\n无效的菜单编号，请重新输入！\n";
-            cout << "按回车继续...";
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cin.get();
-            break;
-        }
+        if (x == 2 && y == 2 && key == 'w') y = 0;
+        else if (x == 2 && y == 2 && key == 's') y = 4;
+        else if (x == 2 && y == 2 && key == 'a') x = 0;
+        else if (x == 2 && y == 2 && key == 'd') x = 4;
+        else if (x == 2 && y == 0 && key == 's') y = 2;
+        else if (x == 2 && y == 4 && key == 'w') y = 2;
+        else if (x == 0 && y == 2 && key == 'd') x = 2;
+        else if (x == 4 && y == 2 && key == 'a') x = 2;
     }
+}
+}
+
+int main() {
+    clearScreen();
+    // std::ifstream titleFile("元神.md");
+    // std::string titleLine;
+    // while (std::getline(titleFile, titleLine)) std::cout << titleLine << '\n';
+    std::cout << "                                      #               #";
+    std::cout << "      ###################                #            #       ";
+    std::cout << "                                  ############        #";
+    std::cout << "                                           #   ###############";
+    std::cout << " ###############################         #     #      #      # ";
+    std::cout << "          #          #                 #       ###############  ";
+    std::cout << "          #          #               # # #     #      #      # ";
+    std::cout << "          #          #             #   #  #    ###############";
+    std::cout << "         #           #                 #   #          #    ";
+    std::cout << "        #            #                 #              #     ";
+    std::cout << "       #                ##     #       #              #   ";
+    std::cout << "     #                   ######        #              #  ";
+    std::cout << "\n               你能成为元素精灵之神吗？\n\n按 Enter 开始。";
+    std::cin.get();
+    Player player;
+    std::cout << "1. 新游戏\n2. 读取存档\n选择：";
+    if (readChoice(1, 2) == 2 && loadGame(player)) std::cout << "读档成功，欢迎回来！\n";
+    else {
+        player = newGame();
+        clearScreen();
+        std::cout << "【序章·元素长老的嘱托】\n\n"
+                  << "长老：渊主腐化了四座高塔，元素循环正在崩坏。\n"
+                  << "长老：水克火、火克草、草克水。先前往北方的熔岩高塔吧。\n"
+                  << "长老将伙伴“初始·泡泡鲸”托付给了你。\n\n按 Enter 出发。";
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); std::cin.get();
+    }
+
+    std::cout << "\n从城镇广场出发，开始探索吧。\n";
+    worldMap(player);
     return 0;
 }

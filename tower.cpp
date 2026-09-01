@@ -1,197 +1,258 @@
 #include "tower.h"
+
+#include "battle.h"
 #include <iostream>
-#include <algorithm>
 #include <string>
 
-using namespace std;
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
-// ---------- 全局变量定义 ----------
-int northClear = 0;
-int westClear = 0;
-int southClear = 0;
-int eastUnlock = 0;
-int inTower = 0;
-int curRoomIdx = 0;
+void setColor(int color) {
+#ifdef _WIN32
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), static_cast<WORD>(color));
+#else
+    const char* ansi = color == 14 ? "\033[93m" : color == 12 ? "\033[91m" :
+                       color == 10 ? "\033[92m" : color == 13 ? "\033[95m" : "\033[0m";
+    std::cout << ansi;
+#endif
+}
 
-// ---------- 工具函数（原封不动） ----------
-void clearScreen() { system("cls"); }
-void setColor(int color) { SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color); }
-void hideCursor() { CONSOLE_CURSOR_INFO cursor_info = { 1, 0 }; SetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &cursor_info); }
-void gotoxy(int x, int y) { COORD coord; coord.X = x; coord.Y = y; SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord); }
+void hideCursor() {
+#ifdef _WIN32
+    CONSOLE_CURSOR_INFO cursorInfo = {1, FALSE};
+    SetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &cursorInfo);
+#else
+    std::cout << "\033[?25l";
+#endif
+}
+
+void gotoxy(int x, int y) {
+#ifdef _WIN32
+    COORD coord = {static_cast<SHORT>(x), static_cast<SHORT>(y)};
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+#else
+    std::cout << "\033[" << y + 1 << ";" << x + 1 << "H";
+#endif
+}
 
 void drawBox(int x, int y) {
     setColor(12);
-    gotoxy(x, y); cout << "┌──────────┐";
-    gotoxy(x, y + 1); cout << "│          │";
-    gotoxy(x, y + 2); cout << "│          │";
-    gotoxy(x, y + 3); cout << "└──────────┘";
+    gotoxy(x, y);     std::cout << "┌──────────┐";
+    gotoxy(x, y + 1); std::cout << "│          │";
+    gotoxy(x, y + 2); std::cout << "│          │";
+    gotoxy(x, y + 3); std::cout << "└──────────┘";
     setColor(7);
 }
 
 void drawVLine(int x, int y1, int y2) {
     setColor(12);
-    for (int i = y1; i <= y2; ++i) { gotoxy(x, i); cout << "│"; }
+    for (int y = y1; y <= y2; ++y) { gotoxy(x, y); std::cout << "│"; }
     setColor(7);
 }
 
 void drawHLine(int x1, int x2, int y) {
     setColor(12);
-    for (int i = x1; i <= x2; ++i) { gotoxy(i, y); cout << "─"; }
+    for (int x = x1; x <= x2; ++x) { gotoxy(x, y); std::cout << "─"; }
     setColor(7);
 }
 
-// ================== 主城地图渲染 ==================
-void renderMainMap(int playerX, int playerY) {
-    clearScreen();
-    hideCursor();
-    setColor(14); gotoxy(0, 0); cout << "【主城地图】";
-
-    drawBox(30, 3);  // 北塔
-    drawBox(5, 12);  // 西塔
-    drawBox(30, 12); // 城镇
-    drawBox(55, 12); // 东塔
-    drawBox(30, 21); // 南塔
-
-    drawVLine(35, 7, 11);
-    drawVLine(35, 16, 20);
-    drawHLine(17, 29, 14);
-    drawHLine(41, 54, 14);
-
-    auto drawText = [&](int nodeX, int nodeY, int x, int y, const string& name) {
-        gotoxy(x, y);
-        if (playerX == nodeX && playerY == nodeY) { setColor(12); cout << "★" << name << "★"; }
-        else { setColor(10); cout << " " << name << " "; }
-        };
-
-    drawText(2, 0, 32, 4, "北塔");
-    drawText(0, 2, 7, 13, "西塔");
-    drawText(2, 2, 32, 13, "城镇");
-    drawText(4, 2, 57, 13, "东塔");
-    drawText(2, 4, 32, 22, "南塔");
-
-    setColor(13);
-    gotoxy(0, 28);
-    cout << "W↑ S↓ A← D→ 移动 | [1]进入 | [Q]退出" << endl;
+namespace {
+// 以下函数只描述塔内节点、事件与绘制细节，不属于跨模块接口。
+void drawNode(int nodeX, int nodeY, int playerX, int playerY, int textX, int textY,
+              const std::string& name, bool finished = false) {
+    gotoxy(textX, textY);
+    if (playerX == nodeX && playerY == nodeY) {
+        setColor(14); std::cout << "★" << name << "★";
+    } else if (finished) {
+        setColor(13); std::cout << " " << name << " ";
+    } else {
+        setColor(10); std::cout << " " << name << " ";
+    }
     setColor(7);
 }
 
-// ================== 塔内地图渲染 ==================
-void renderTowerMap(int playerX, int playerY) {
+Element towerElement(TowerDirection direction) {
+    if (direction == TowerDirection::North) return Element::Fire;
+    if (direction == TowerDirection::West) return Element::Grass;
+    if (direction == TowerDirection::South) return Element::Water;
+    return static_cast<Element>(randomInt(0, 2));
+}
+
+void renderTowerMap(int playerX, int playerY, const bool cleared[5], bool bossOpen) {
     clearScreen();
     hideCursor();
+    setColor(14); gotoxy(0, 0); std::cout << "【塔内地图】";
 
-    setColor(14); gotoxy(0, 0); cout << "【塔内地图】";
-
-    drawBox(30, 3);  // 奇遇房
-    drawBox(30, 9);  // 小怪房
-    drawBox(5, 9);   // 分支小怪房
-    drawBox(30, 15); // 奇遇房
-    drawBox(30, 21); // BOSS房
-
+    // 房间、线条与参考文件采用相同坐标和十字布局。
+    drawBox(30, 3);   // 顶部奇遇
+    drawBox(30, 9);   // 中央小怪
+    drawBox(5, 9);    // 左侧小怪
+    drawBox(30, 15);  // 下方奇遇
+    drawBox(30, 21);  // 首领
     drawVLine(35, 7, 8);
     drawHLine(17, 29, 11);
     drawVLine(35, 13, 14);
     drawVLine(35, 19, 20);
 
-    auto drawText = [&](int nodeX, int nodeY, int x, int y, const string& name) {
-        gotoxy(x, y);
-        if (playerX == nodeX && playerY == nodeY) { setColor(12); cout << "★" << name << "★"; }
-        else { setColor(10); cout << " " << name << " "; }
-        };
-
-    drawText(1, 0, 32, 4, "奇遇房");
-    drawText(1, 1, 32, 10, "小怪房");
-    drawText(0, 1, 7, 10, "小怪房");
-    drawText(1, 2, 32, 16, "奇遇房");
-    drawText(1, 3, 32, 22, "BOSS房");
+    drawNode(1, 0, playerX, playerY, 32, 4, cleared[0] ? "已探索" : "奇遇房", cleared[0]);
+    drawNode(1, 1, playerX, playerY, 32, 10, cleared[1] ? "已探索" : "小怪房", cleared[1]);
+    drawNode(0, 1, playerX, playerY, 7, 10, cleared[2] ? "已探索" : "小怪房", cleared[2]);
+    drawNode(1, 2, playerX, playerY, 32, 16, cleared[3] ? "已探索" : "奇遇房", cleared[3]);
+    drawNode(1, 3, playerX, playerY, 32, 22, bossOpen ? "首领房" : "封印房", false);
 
     setColor(13);
     gotoxy(0, 28);
-    cout << "W↑ S↓ A← D→ 移动 | [Q]撤离" << endl;
+    std::cout << "W↑ S↓ A← D→ 选择房间  |  1 进入当前房间  |  Q 撤离";
     setColor(7);
+    gotoxy(0, 30);
+    std::cout << "行动：";
+    gotoxy(0, 32);
+    if (playerX == 1 && playerY == 0) std::cout << "选中奇遇房：雾中传来低语，未知的交易正在等待。";
+    else if (playerX == 1 && playerY == 1) std::cout << "选中小怪房：元素气息躁动，做好战斗准备。";
+    else if (playerX == 0 && playerY == 1) std::cout << "选中小怪房：这里的守卫看起来比中央房间更凶猛。";
+    else if (playerX == 1 && playerY == 2) std::cout << "选中奇遇房：空气中有微弱的元素波动。";
+    else std::cout << (bossOpen ? "选中首领房：封印已解，塔主正在等待挑战。" : "选中封印房：击败两只小怪后才能进入。");
 }
 
-// ================== 塔内房间战斗逻辑 ==================
-bool canEnterTower(int towerId) {
-    if (towerId == 1) return true;             // 北塔默认解锁
-    if (towerId == 2) return northClear == 1;  // 西塔需通关北塔
-    if (towerId == 3) return westClear == 1;   // 南塔需通关西塔
-    if (towerId == 4) return eastUnlock == 1;  // 东塔需特殊解锁
-    return false;
+char readMove() {
+    char key = 'q';
+    std::cin >> key;
+    if (key >= 'A' && key <= 'Z') key = static_cast<char>(key - 'A' + 'a');
+    return key;
 }
 
-// 辅助创建敌人宠物
-Pet createEnemy(int towerId, bool isBoss) {
-    if (isBoss) {
-        return Pet("塔主", "火", 10 + towerId * 2); // Boss更高等级
+int moveTowerNode(int current, char key) {
+    // 0: 顶部奇遇，1: 中央小怪，2: 左侧小怪，3: 下方奇遇，4: 首领。
+    if (current == 0 && key == 's') return 1;
+    if (current == 1 && key == 'w') return 0;
+    if (current == 1 && key == 'a') return 2;
+    if (current == 1 && key == 's') return 3;
+    if (current == 2 && key == 'd') return 1;
+    if (current == 3 && key == 'w') return 1;
+    if (current == 3 && key == 's') return 4;
+    if (current == 4 && key == 'w') return 3;
+    return current;
+}
+
+void towerNodePosition(int node, int& x, int& y) {
+    const int positions[5][2] = {{1,0}, {1,1}, {0,1}, {1,2}, {1,3}};
+    x = positions[node][0]; y = positions[node][1];
+}
+
+void resolveEvent(Player& player) {
+    const int event = randomInt(0, 2);
+    clearScreen();
+    std::cout << "【神秘奇遇】\n\n";
+    if (event == 0) {
+        Creature* chosen = nullptr;
+        for (Creature& c : player.team) if (c.hp > 20) { chosen = &c; break; }
+        std::cout << "神秘商人：用 20 点生命交换一瓶力量药水，如何？\n"
+                  << "1 接受交易\n2 转身离开\n选择：";
+        int choice = 2;
+        while (!(std::cin >> choice) || choice < 1 || choice > 2) { std::cin.clear(); std::cin.ignore(10000, '\n'); std::cout << "请输入 1 或 2："; }
+        if (choice == 1 && chosen) { chosen->hp -= 20; ++player.powerPotion; std::cout << "商人收走了 20 点生命，留下力量药水。\n"; }
+        else if (choice == 1) std::cout << "商人摇头：你没有足够的生命可以交换。\n";
+        else std::cout << "你拒绝了交易，商人消失在阴影中。\n";
     }
-    else {
-        return Pet("小怪", "草", 1 + towerId);      // 小怪等级随塔变高
-    }
+    else if (event == 1) { ++player.powerPotion; std::cout << "古老祭坛赠予你 1 瓶力量药水。\n"; }
+    else { for (Creature& c : player.team) healCreature(c, 30); std::cout << "精灵之风为全队恢复 30 HP。\n"; }
+    std::cout << "\n按 Enter 返回地图。";
+    std::cin.ignore(10000, '\n'); std::cin.get();
+}
 }
 
-void runTower(int towerId, Player& player) {
-    if (!canEnterTower(towerId)) return;
+void renderMainMap(int playerX, int playerY, const Player& player) {
+    clearScreen();
+    hideCursor();
+    setColor(14); gotoxy(0, 0); std::cout << "【主城地图】";
+    drawBox(30, 3);
+    drawBox(5, 12);
+    drawBox(30, 12);
+    drawBox(55, 12);
+    drawBox(30, 21);
+    drawVLine(35, 7, 11);
+    drawVLine(35, 16, 20);
+    drawHLine(17, 29, 14);
+    drawHLine(41, 54, 14);
+    drawNode(2, 0, playerX, playerY, 32, 4, "北塔", player.cleared[3]);
+    drawNode(0, 2, playerX, playerY, 7, 13, "西塔", player.cleared[1]);
+    drawNode(2, 2, playerX, playerY, 32, 13, "城镇");
+    drawNode(4, 2, playerX, playerY, 57, 13, "东塔", player.cleared[0]);
+    drawNode(2, 4, playerX, playerY, 32, 22, "南塔", player.cleared[2]);
+    setColor(13);
+    gotoxy(0, 28);
+    std::cout << "W↑ S↓ A← D→ 移动  |  1 进入地点  |  Q 保存并退出";
+    setColor(7);
+    gotoxy(0, 30);
+    std::cout << "行动：";
+}
 
-    inTower = towerId;
-    curRoomIdx = 0;
-    vector<string> roomList = { "battle", "gold", "heal", "battle", "boss" }; // 生成本塔房间序列
-
-    while (curRoomIdx < roomList.size()) {
+bool exploreTower(Player& player, TowerDirection direction) {
+    const int towerIndex = static_cast<int>(direction);
+    if (player.cleared[towerIndex]) return false;
+    // 主线顺序：水属性初始伙伴先克北方火塔，随后解锁草、水与东方最终塔。
+    if ((direction == TowerDirection::West && !player.cleared[3]) ||
+        (direction == TowerDirection::South && !player.cleared[1]) ||
+        (direction == TowerDirection::East && !player.cleared[2])) {
         clearScreen();
-        // 打印塔内当前房间状态（沿用之前硬编码地图的展示，但只显示当前所在房间）
-        setColor(14); gotoxy(0, 0); cout << "【塔内地牢】当前房间: " << curRoomIdx + 1 << "/" << roomList.size();
-
-        // 展示地图框架
-        renderTowerMap(curRoomIdx, 0); // 传个临时坐标，仅用于显示
-
-        string roomType = roomList[curRoomIdx];
-        cout << "\n\n当前事件: " << roomType << endl;
-
-        if (roomType == ROOM_BATTLE || roomType == ROOM_BOSS) {
-            // 构造敌人
-            Pet enemy = createEnemy(towerId, roomType == ROOM_BOSS);
-            Pet& our = player.team[0]; // 取第一只精灵出战
-
-            // 【核心调用】调用 battle.h 中的战斗函数
-            BattleResult result = battle(our, enemy, player);
-
-            if (result == BATTLE_LOSE) {
-                cout << "\n全队阵亡，被迫撤离回城镇！" << endl;
-                inTower = 0;
-                system("pause");
-                return;
-            }
-            else if (result == BATTLE_ESCAPE) {
-                cout << "\n你撤退了，返回城镇。" << endl;
-                inTower = 0;
-                system("pause");
-                return;
-            }
-            else { // BATTLE_WIN
-                if (roomType == ROOM_BOSS) {
-                    cout << "恭喜通关此塔！" << endl;
-                    if (towerId == 1) northClear = 1;
-                    else if (towerId == 2) westClear = 1;
-                    else if (towerId == 3) southClear = 1;
-                    else if (towerId == 4) eastUnlock = 0; // 东塔通关等特殊设定
-                }
-            }
-        }
-        else if (roomType == ROOM_HEAL) {
-            cout << "回血房间！你的宠物恢复了！" << endl;
-            for (auto& p : player.team) p.heal(p.getMaxHp());
-        }
-        else if (roomType == ROOM_GOLD) {
-            cout << "金币房间！获得 100 金币！" << endl;
-            player.money += 100;
-        }
-
-        curRoomIdx++;
-        system("pause");
+        std::cout << "元素碎片尚未回应这里。\n"
+                  << (direction == TowerDirection::West ? "先完成北方熔岩高塔。" :
+                      direction == TowerDirection::South ? "先完成西方森语高塔。" : "先完成南方潮汐高塔。")
+                  << "\n按 Enter 返回地图。";
+        std::cin.ignore(10000, '\n'); std::cin.get();
+        return false;
     }
 
-    cout << "塔内全部探索完毕！" << endl;
-    inTower = 0;
-    system("pause");
+    const Element element = towerElement(direction);
+    bool cleared[5] = {false, false, false, false, false};
+    int current = 1;
+    int monsterWins = 0;
+
+    while (true) {
+        int x, y; towerNodePosition(current, x, y);
+        renderTowerMap(x, y, cleared, monsterWins >= 2);
+        const char key = readMove();
+        if (key == 'q') return false;
+        if (key == '1') {
+            // 进入当前选中的房间；初始就在中央小怪房，符合主地图的交互规则。
+        } else {
+            const int next = moveTowerNode(current, key);
+            if (next == current) continue;
+            current = next;
+            continue;
+        }
+        if (cleared[current]) continue;
+        if (current == 4) {
+            if (monsterWins < 2) continue;
+            clearScreen();
+            std::cout << "【首领房】" << elementName(element) << "属性塔主降临！\n";
+            Creature boss = makeCreature(element, direction == TowerDirection::North ? 2 : 3, true, std::string(elementName(element)) + "属性塔主");
+            if (direction == TowerDirection::North) { boss.maxHp -= 28; boss.hp = boss.maxHp; boss.baseDamage -= 5; }
+            if (!startBattle(player, boss)) return false;
+            player.cleared[towerIndex] = true;
+            player.team.push_back(makeCreature(element, 3, false, std::string("捕获·") + elementName(element) + "属性塔主"));
+            player.gold += 50;
+            clearScreen();
+            std::cout << "【高塔净化】你获得了 " << elementName(element) << "之碎片。\n";
+            if (direction == TowerDirection::North) std::cout << "守塔残魂：渊主已经前往西方森语高塔……\n";
+            else if (direction == TowerDirection::West) std::cout << "碎片微光指向南方潮汐高塔。\n";
+            else if (direction == TowerDirection::South) std::cout << "三种元素共鸣，东方混沌高塔已开启。\n";
+            else std::cout << "四塔净化完成，元素循环重归平衡！\n";
+            std::cout << "按 Enter 返回世界地图。";
+            std::cin.ignore(10000, '\n'); std::cin.get();
+            return true;
+        }
+        if (current == 1 || current == 2) {
+            clearScreen();
+            std::cout << "【小怪房】高塔守卫出现！\n";
+            if (!startBattle(player, makeCreature(element, randomInt(1, 2), false, "高塔守卫"))) return false;
+            cleared[current] = true;
+            ++monsterWins;
+            player.gold += 18;
+            continue;
+        }
+        cleared[current] = true;
+        resolveEvent(player);
+    }
 }

@@ -1,154 +1,44 @@
 #include "save_load.h"
+
 #include <fstream>
-#include <iostream>
-#include <sstream>
-#include <vector>
-#include <algorithm>
+#include <iomanip>
 
-int safeStoi(const std::string& str, int fallback = 0) {
-    try {
-        std::string trimmed = str;
-        trimmed.erase(std::remove(trimmed.begin(), trimmed.end(), '\r'), trimmed.end());
-        return std::stoi(trimmed);
-    } catch (...) {
-        return fallback;
-    }
+namespace {
+// 防止损坏存档构造过大的队伍并耗尽内存。
+constexpr std::size_t kMaximumTeamSize = 20;
 }
 
-void saveGame(Player& player) {
-    std::ofstream out(kSaveFileName);
-    if (!out.is_open()) {
-        std::cout << ">> 错误：无法创建存档文件" << std::endl;
-        return;
+bool saveGame(const Player& player, const std::string& fileName) {
+    std::ofstream out(fileName);
+    if (!out) return false;
+    out << player.gold << ' ' << player.healthPotion << ' ' << player.powerPotion << '\n';
+    for (bool clear : player.cleared) out << clear << ' ';
+    out << '\n' << player.team.size() << '\n';
+    for (const Creature& c : player.team) {
+        out << std::quoted(c.name) << ' ' << static_cast<int>(c.element) << ' ' << c.level << ' '
+            << c.maxHp << ' ' << c.hp << ' ' << c.baseDamage << ' ' << c.skillLevel << ' '
+            << c.battlePoints << ' ' << c.damageBuffTurns << ' ' << c.dodgeBuffTurns << ' ' << c.isBoss << '\n';
     }
-    out << "# CppPetGame Save v1" << std::endl;
-    out << "PlayerName " << player.name << std::endl;
-    out << "Gold " << player.gold << std::endl;
-    out << "CurrentTower " << player.currentTower << std::endl;
-    out << "CurrentRoom " << player.currentRoom << std::endl;
-    out << "TowerProgress";
-    for (int i = 0; i < 5; ++i)
-        out << " " << player.towerProgress[i];
-    out << std::endl;
-
-    out << "BagSize " << player.bag.size() << std::endl;
-    for (const auto& item : player.bag) {
-        out << "Item " << item.name << " " << item.quantity << " "
-            << item.effectValue << " " << item.price << std::endl;
-    }
-
-    out << "TeamSize " << player.team.size() << std::endl;
-    for (const auto& pet : player.team) {
-        out << "Pet " << pet.name << " " << pet.type << " " << pet.level << " "
-            << pet.hp << " " << pet.maxHp << " " << pet.attack << " "
-            << pet.dodging << " " << pet.skill1EffectValue << " "
-            << pet.skill2EffectValue << " " << pet.skill3EffectValue << " "
-            << pet.exp << " " << pet.energyPoints << " "
-            << (pet.isAlive ? 1 : 0) << " "
-            << pet.skillLevel1 << " " << pet.skillLevel2 << " "
-            << pet.skillLevel3 << " "
-            << pet.skillName1 << " " << pet.skillName2 << " "
-            << pet.skillName3 << std::endl;
-    }
-    out.close();
-    std::cout << ">> 游戏已保存。" << std::endl;
+    return true;
 }
 
-bool loadGame(Player& player) {
-    std::ifstream in(kSaveFileName);
-    if (!in.is_open()) {
-        return false;
+bool loadGame(Player& player, const std::string& fileName) {
+    std::ifstream in(fileName);
+    if (!in) return false;
+    Player loaded;
+    if (!(in >> loaded.gold >> loaded.healthPotion >> loaded.powerPotion)) return false;
+    for (bool& clear : loaded.cleared) if (!(in >> clear)) return false;
+    std::size_t count = 0;
+    if (!(in >> count) || count == 0 || count > kMaximumTeamSize) return false;
+    for (std::size_t i = 0; i < count; ++i) {
+        Creature c;
+        int element = 0;
+        if (!(in >> std::quoted(c.name) >> element >> c.level >> c.maxHp >> c.hp >> c.baseDamage
+              >> c.skillLevel >> c.battlePoints >> c.damageBuffTurns >> c.dodgeBuffTurns >> c.isBoss)) return false;
+        if (element < 0 || element > 2) return false;
+        c.element = static_cast<Element>(element);
+        loaded.team.push_back(c);
     }
-
-    Player tempPlayer("");
-    std::string line;
-    int expectedBagSize = 0;
-    int expectedTeamSize = 0;
-
-    while (std::getline(in, line)) {
-        std::istringstream iss(line);
-        std::string key;
-        iss >> key;
-        if (key.empty() || key[0] == '#') continue;
-        try {
-            if (key == "PlayerName") {
-                std::string name; iss >> name;
-                tempPlayer.name = name;
-            }
-            else if (key == "Gold") {
-                std::string val; iss >> val;
-                tempPlayer.gold = safeStoi(val);
-            }
-            else if (key == "CurrentTower") {
-                std::string val; iss >> val;
-                tempPlayer.currentTower = safeStoi(val);
-            }
-            else if (key == "CurrentRoom") {
-                std::string val; iss >> val;
-                tempPlayer.currentRoom = safeStoi(val);
-            }
-            else if (key == "TowerProgress") {
-                for (int i = 0; i < 5; ++i) {
-                    std::string val;
-                    if (iss >> val)
-                        tempPlayer.towerProgress[i] = safeStoi(val);
-                }
-            }
-            else if (key == "BagSize") {
-                std::string val; iss >> val;
-                expectedBagSize = safeStoi(val);
-            }
-            else if (key == "Item") {
-                std::string iName, iQtyStr, iEvStr, iPriceStr;
-                if (iss >> iName >> iQtyStr >> iEvStr >> iPriceStr) {
-                    Item item;
-                    item.name = iName;
-                    item.quantity = safeStoi(iQtyStr);
-                    item.effectValue = safeStoi(iEvStr);
-                    item.price = safeStoi(iPriceStr);
-                    tempPlayer.bag.push_back(item);
-                }
-            }
-            else if (key == "TeamSize") {
-                std::string val; iss >> val;
-                expectedTeamSize = safeStoi(val);
-            }
-            else if (key == "Pet") {
-                std::string pName, pType, pLvl, pHp, pMaxHp, pAtk, pDodge;
-                std::string pS1EV, pS2EV, pS3EV, pExp, pEP, pAlive;
-                std::string pSL1, pSL2, pSL3;
-                std::string pSN1, pSN2, pSN3;
-                if (iss >> pName >> pType >> pLvl >> pHp >> pMaxHp >> pAtk >> pDodge
-                        >> pS1EV >> pS2EV >> pS3EV >> pExp >> pEP >> pAlive
-                        >> pSL1 >> pSL2 >> pSL3 >> pSN1 >> pSN2 >> pSN3) {
-                    Pet newPet(pName, pType, safeStoi(pLvl),
-                               pSN1, pSN2, pSN3,
-                               safeStoi(pHp), safeStoi(pMaxHp),
-                               safeStoi(pAtk), safeStoi(pDodge),
-                               safeStoi(pS1EV), safeStoi(pS2EV), safeStoi(pS3EV));
-                    newPet.exp = safeStoi(pExp);
-                    newPet.energyPoints = safeStoi(pEP);
-                    newPet.isAlive = (safeStoi(pAlive) == 1);
-                    newPet.skillLevel1 = safeStoi(pSL1);
-                    newPet.skillLevel2 = safeStoi(pSL2);
-                    newPet.skillLevel3 = safeStoi(pSL3);
-                    tempPlayer.team.push_back(newPet);
-                }
-            }
-        } catch (...) {
-            in.close();
-            return false;
-        }
-    }
-    in.close();
-
-    if (static_cast<int>(tempPlayer.bag.size()) != expectedBagSize ||
-        static_cast<int>(tempPlayer.team.size()) != expectedTeamSize) {
-        return false;
-    }
-    if (tempPlayer.team.empty() && tempPlayer.name.empty()) {
-        return false;
-    }
-    player = tempPlayer;
+    player = loaded;
     return true;
 }
