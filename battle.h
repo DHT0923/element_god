@@ -1,9 +1,7 @@
 #ifndef BATTLE_H
 #define BATTLE_H
-
 #include "data.h"
 
-//战斗结果
 enum BattleResult
 {
     BATTLE_WIN,
@@ -11,7 +9,6 @@ enum BattleResult
     BATTLE_ESCAPE
 };
 
-//战斗行动
 enum BattleAction
 {
     ACT_SKILL1,         // 技能1
@@ -24,9 +21,9 @@ enum BattleAction
 
 /**
  * @brief 主战斗循环
- * @param our 我方出战宠物引用
+ * @param our 初始出战宠物引用
  * @param enemy 敌方宠物引用
- * @param player 玩家对象，背包、队伍、奖励
+ * @param player 玩家对象
  * @return BattleResult
  */
 BattleResult battle(Pet& our, Pet& enemy, Player& player);
@@ -37,27 +34,37 @@ BattleResult battle(Pet& our, Pet& enemy, Player& player);
 void drawBattleUI(const Pet& our, const Pet& enemy, const Player& player);
 
 /**
- * @brief 执行玩家选择的行动
- * @return true行动执行成功；false失败(能量不足、下标非法等)
+ * @brief 执行玩家行动
+ * @param action 行动类型
+ * @param our 当前出战宠物
+ * @param enemy 敌方宠物
+ * @param player 玩家
+ * @param outActivePet [输出]切换宠物时写入新出战宠物指针
+ * @return true行动执行完成；false执行失败
  */
-bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player);
+bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player, Pet*& outActivePet);
 
 /**
- * @brief 敌方AI回合逻辑
+ * @brief 敌方AI回合
  */
 void enemyAiTurn(Pet& enemy, Pet& our, Player& player);
 
 /**
- * @brief 使用背包物品
- * @param itemIdx 背包bag数组下标
+ * @brief 使用背包道具
+ * @param itemIdx 背包下标
+ * @param target 作用目标（出战宠物）
+ * @param enemy 敌方
+ * @param player 玩家
+ * @return true使用成功
  */
-bool battleUseItem(int itemIdx, Pet& our, Pet& enemy, Player& player);
+bool battleUseItem(int itemIdx, Pet& target, Pet& enemy, Player& player);
 
 /**
  * @brief 切换出战宠物
- * @param teamIdx player.team队伍下标
- * @param outActivePet 输出：切换后出战宠物指针
- * @return 切换成功返回true
+ * @param teamIdx 队伍下标
+ * @param player 玩家
+ * @param outActivePet [输出]新出战宠物指针
+ * @return true切换成功
  */
 bool battleSwitchPet(int teamIdx, Player& player, Pet*& outActivePet);
 
@@ -67,7 +74,7 @@ bool battleSwitchPet(int teamIdx, Player& player, Pet*& outActivePet);
 bool battleTryEscape();
 
 /**
- * @brief 战斗结束统一处理：重置buff、结算奖励
+ * @brief 战斗结算：buff重置、经验奖励
  */
 void battleSettle(BattleResult res, Pet& our, Pet& enemy, Player& player);
 

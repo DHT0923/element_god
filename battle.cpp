@@ -1,17 +1,16 @@
 #include "battle.h"
-
 #include <iostream>
 #include <random>
 #include <chrono>
 #include <thread>
 
-//跨平台毫秒延时
+// 跨平台延时
 static void msleep(int ms)
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
-//跨平台清屏
+// 跨平台清屏
 #if defined(_WIN32) || defined(_WIN64)
 #define BATTLE_CLS system("cls")
 #else
@@ -22,25 +21,28 @@ void drawBattleUI(const Pet& our, const Pet& enemy, const Player& /*player*/)
 {
     BATTLE_CLS;
     std::cout << "==========宠物对战==========\n";
-
     std::cout << "【敌方】" << enemy.getName()
-              << "  属性：" << enemy.getType() << "\n";
-    std::cout << "HP：" << enemy.getHp() << "/" << enemy.getMaxHp()
-              << "    能量：" << enemy.getEnergyPoints() << "\n";
-
+              << "  属性：" << enemy.getType()
+              << "  Lv." << enemy.getLevel() << "\n";
+    showHpBar(enemy);
+    std::cout << "能量：" << enemy.getEnergyPoints() << "\n";
     std::cout << "----------------------------\n";
-
     std::cout << "【我方】" << our.getName()
-              << "  属性：" << our.getType() << "\n";
-    std::cout << "HP：" << our.getHp() << "/" << our.getMaxHp()
-              << "    能量：" << our.getEnergyPoints() << "\n";
+              << "  属性：" << our.getType()
+              << "  Lv." << our.getLevel() << "\n";
+    showHpBar(our);
+    std::cout << "能量：" << our.getEnergyPoints() << "\n";
 
-    std::cout << "\n1-技能1   2-技能2   3-技能3\n";
+    std::cout << "\n1-" << our.getSkillName1()
+              << "   2-" << our.getSkillName2()
+              << "   3-" << our.getSkillName3() << "\n";
     std::cout << "4-使用道具  5-切换宠物  6-逃跑\n";
     std::cout << "请输入操作数字：";
 }
 
-bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player)
+// 执行玩家行动
+// 返回true：行动完成，消耗回合；false：执行失败，不消耗回合
+bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player, Pet*& outActivePet)
 {
     switch (action)
     {
@@ -51,6 +53,7 @@ bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player)
         our.useSkill2(enemy);
         return true;
     case ACT_SKILL3:
+        // 能量不足判断放在data层useSkill3内部，这里只管调用
         our.useSkill3(enemy);
         return true;
     case ACT_USE_ITEM:
@@ -65,8 +68,7 @@ bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player)
         int idx;
         std::cout << "\n输入队伍宠物下标：";
         std::cin >> idx;
-        Pet* temp = nullptr;
-        return battleSwitchPet(idx, player, temp);
+        return battleSwitchPet(idx, player, outActivePet);
     }
     case ACT_ESCAPE:
         return battleTryEscape();
@@ -75,14 +77,13 @@ bool doPlayerAction(BattleAction action, Pet& our, Pet& enemy, Player& player)
     }
 }
 
+// 敌方AI随机选择1‑3技能行动
 void enemyAiTurn(Pet& enemy, Pet& our, Player& /*player*/)
 {
     static std::mt19937 rng((std::random_device{})());
     std::uniform_int_distribution<int> skillRand(1, 3);
-
     std::cout << "\n-----敌方行动-----\n";
     msleep(600);
-
     int select = skillRand(rng);
     if (select == 1)
     {
@@ -98,27 +99,94 @@ void enemyAiTurn(Pet& enemy, Pet& our, Player& /*player*/)
     }
 }
 
-bool battleUseItem(int /*itemIdx*/, Pet& /*our*/, Pet& /*enemy*/, Player& /*player*/)
+// 使用背包道具：只实现回血，完全调用player公开接口
+bool battleUseItem(int itemIdx, Pet& target, Pet& /*enemy*/, Player& player)
 {
-    //业务待实现：读取player.bag，调用our.heal()等公有接口
-    std::cout << "道具功能尚未实现\n";
-    msleep(600);
-    return false;
+    const std::vector<Item>& bag = player.getBag();
+    // 下标合法性校验
+    if (itemIdx < 0 || itemIdx >= static_cast<int>(bag.size()))
+    {
+        std::cout << "\n错误：背包下标无效！\n";
+        msleep(700);
+        return false;
+    }
+    const Item& item = bag[itemIdx];
+    // consumeItem按名字消耗，内部处理数量扣减、自动删除空条目
+    bool ok = player.consumeItem(item.name, 1);
+    if (!ok)
+    {
+        std::cout << "\n道具消耗失败！\n";
+        msleep(700);
+        return false;
+    }
+    target.heal(item.effectValue);
+    std::cout << "\n使用【" << item.name << "】，恢复 " << item.effectValue << " HP！\n";
+    msleep(700);
+    return true;
 }
 
-bool battleSwitchPet(int /*teamIdx*/, Player& /*player*/, Pet*& /*outActivePet*/)
+// 切换出战宠物；不使用const_cast，通过非const迭代器获取指针
+bool battleSwitchPet(int teamIdx, Player& player, Pet*& outActivePet)
 {
-    //业务待实现：访问player.team，输出出战宠物指针
-    std::cout << "切换宠物尚未实现\n";
-    msleep(600);
-    return false;
+    const std::vector<Pet>& team = player.getTeam();
+    if (teamIdx < 0 || teamIdx >= static_cast<int>(team.size()))
+    {
+        std::cout << "\n错误：队伍下标超出范围！\n";
+        msleep(700);
+        return false;
+    }
+
+    int realIdx = player.findPetIndex(team[teamIdx].getName());
+    if (realIdx == -1)
+    {
+        std::cout << "\n找不到该宠物\n";
+        msleep(700);
+        return false;
+    }
+    Pet* targetPet = nullptr;
+    {
+        int i = 0;
+        for (auto it = player.teamBegin(); it != player.teamEnd(); ++it, ++i)
+        {
+            if (i == realIdx)
+            {
+                targetPet = &(*it);
+                break;
+            }
+        }
+    }
+    if (targetPet == nullptr)
+    {
+        std::cout << "\n获取宠物指针失败\n";
+        msleep(700);
+        return false;
+    }
+    // 不能切换死亡宠物
+    if (!targetPet->alive())
+    {
+        std::cout << "\n该宠物已经阵亡，无法出战！\n";
+        msleep(700);
+        return false;
+    }
+    // 不能切换当前已经出战的宠物
+    if (outActivePet == targetPet)
+    {
+        std::cout << "\n已经是该宠物出战！\n";
+        msleep(700);
+        return false;
+    }
+
+    outActivePet = targetPet;
+    std::cout << "\n切换出战宠物 → " << targetPet->getName() << "\n";
+    msleep(700);
+    return true;
 }
 
+// 逃跑概率35%成功
 bool battleTryEscape()
 {
     static std::mt19937 rng((std::random_device{})());
     std::uniform_int_distribution<int> rollDist(0, 99);
-
     int roll = rollDist(rng);
     if (roll < 35)
     {
@@ -131,16 +199,20 @@ bool battleTryEscape()
     return false;
 }
 
-void battleSettle(BattleResult res, Pet& our, Pet& enemy, Player& /*player*/)
+// 战斗结算：胜利给经验；逃跑不清除buff，胜利/失败清除双方buff
+void battleSettle(BattleResult res, Pet& our, Pet& enemy, Player& player)
 {
-    //战斗结束重置双方增益buff，调用公有接口
-    our.resetBuff();
-    enemy.resetBuff();
-
+    if (res != BATTLE_ESCAPE)
+    {
+        our.resetBuff();
+        enemy.resetBuff();
+    }
     if (res == BATTLE_WIN)
     {
         std::cout << "\n>>>>战斗胜利<<<<\n";
-        //此处可写：player队伍调用addExp()增加经验
+        int expGain = enemy.getLevel() * 25;
+        our.addExp(expGain);
+        std::cout << our.getName() << " 获得 " << expGain << " 经验！\n";
     }
     else if (res == BATTLE_LOSE)
     {
@@ -151,14 +223,20 @@ void battleSettle(BattleResult res, Pet& our, Pet& enemy, Player& /*player*/)
 
 BattleResult battle(Pet& our, Pet& enemy, Player& player)
 {
+    Pet* activePet = &our;
     while (true)
     {
-        drawBattleUI(our, enemy, player);
+        // 空指针防御
+        if (activePet == nullptr)
+        {
+            battleSettle(BATTLE_LOSE, our, enemy, player);
+            return BATTLE_LOSE;
+        }
 
+        drawBattleUI(*activePet, enemy, player);
         int op;
         std::cin >> op;
         BattleAction act;
-
         switch (op)
         {
         case 1: act = ACT_SKILL1; break;
@@ -173,30 +251,56 @@ BattleResult battle(Pet& our, Pet& enemy, Player& player)
             continue;
         }
 
-        bool ret = doPlayerAction(act, our, enemy, player);
+        bool ret = doPlayerAction(act, *activePet, enemy, player, activePet);
 
-        //逃跑直接跳出战斗循环
+        // 逃跑成功直接结束战斗
         if (act == ACT_ESCAPE && ret == true)
         {
-            battleSettle(BATTLE_ESCAPE, our, enemy, player);
+            battleSettle(BATTLE_ESCAPE, *activePet, enemy, player);
             return BATTLE_ESCAPE;
         }
 
-        //敌方死亡判定，只读getHp()
-        if (enemy.getHp() <= 0)
+        if (ret && (act == ACT_SWITCH_PET || act == ACT_USE_ITEM))
         {
-            battleSettle(BATTLE_WIN, our, enemy, player);
-            return BATTLE_WIN;
+            // 换宠、使用道具：属于完整回合，不攻击，直接能量+1，敌方行动
+            activePet->gainEnergy(1);
+            enemy.gainEnergy(1);
+            enemyAiTurn(enemy, *activePet, player);
         }
-
-        //敌方AI回合
-        enemyAiTurn(enemy, our, player);
-
-        //我方死亡判定
-        if (our.getHp() <= 0)
+        else if (ret)
         {
-            battleSettle(BATTLE_LOSE, our, enemy, player);
-            return BATTLE_LOSE;
+            // 释放技能：我方打完，先看敌方是否死亡
+            if (!enemy.alive())
+            {
+                battleSettle(BATTLE_WIN, *activePet, enemy, player);
+                return BATTLE_WIN;
+            }
+            activePet->gainEnergy(1);
+            enemy.gainEnergy(1);
+            enemyAiTurn(enemy, *activePet, player);
+        }
+        // ret==false：行动失败，不消耗回合，直接向下走到阵亡判断，回到循环开头
+
+        // 我方出战宠物阵亡，尝试自动切换队伍下一只存活宠物
+        if (!activePet->alive())
+        {
+            std::cout << "\n" << activePet->getName() << " 倒下了！\n";
+            msleep(800);
+            int curIdx = player.findPetIndex(activePet->getName());
+            Pet* nextAlive = player.getNextAlivePet(curIdx);
+            if (nextAlive != nullptr)
+            {
+                std::cout << "派出 " << nextAlive->getName() << "！\n";
+                activePet = nextAlive;
+                msleep(800);
+                continue;
+            }
+            else
+            {
+                // 全队没有存活宠物，战斗失败
+                battleSettle(BATTLE_LOSE, *activePet, enemy, player);
+                return BATTLE_LOSE;
+            }
         }
     }
 }
