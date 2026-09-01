@@ -4,11 +4,13 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <conio.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+// ================== 工具函数（与原版完全相同） ==================
 void setColor(int color) {
 #ifdef _WIN32
     SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), static_cast<WORD>(color));
@@ -59,17 +61,18 @@ void drawHLine(int x1, int x2, int y) {
 }
 
 namespace {
+    // 辅助显示节点名称
     void drawNode(int nodeX, int nodeY, int playerX, int playerY, int textX, int textY,
         const std::string& name, bool finished = false) {
         gotoxy(textX, textY);
         if (playerX == nodeX && playerY == nodeY) {
-            setColor(14); std::cout << "★" << name << "★";
+            setColor(14); std::cout << "★" << name << "★"; // 玩家所在
         }
         else if (finished) {
-            setColor(13); std::cout << " " << name << " ";
+            setColor(13); std::cout << " " << name << " "; // 已通关
         }
         else {
-            setColor(10); std::cout << " " << name << " ";
+            setColor(10); std::cout << " " << name << " "; // 未通关
         }
         setColor(7);
     }
@@ -81,17 +84,18 @@ namespace {
         return static_cast<Element>(std::rand() % 3);
     }
 
+    // ================== 塔内地图渲染（方框+连线） ==================
     void renderTowerMap(int playerX, int playerY, const bool cleared[5], bool bossOpen) {
         clearScreen();
         hideCursor();
         setColor(14); gotoxy(0, 0); std::cout << "【塔内地图】";
 
-        // 房间、线条与参考文件采用相同坐标和十字布局。
         drawBox(30, 3);   // 顶部奇遇
         drawBox(30, 9);   // 中央小怪
         drawBox(5, 9);    // 左侧小怪
         drawBox(30, 15);  // 下方奇遇
         drawBox(30, 21);  // 首领
+
         drawVLine(35, 7, 8);
         drawHLine(17, 29, 11);
         drawVLine(35, 13, 14);
@@ -111,15 +115,13 @@ namespace {
         std::cout << "行动：";
     }
 
+    // ================== 改用 _getch() 实现按1直接进入后的即时移动 ==================
     char readMove() {
-        char key = 'q';
-        std::cin >> key;
-        if (key >= 'A' && key <= 'Z') key = static_cast<char>(key - 'A' + 'a');
+        char key = tolower(_getch()); // 直接获取按键，不需要按回车
         return key;
     }
 
     int moveTowerNode(int current, char key) {
-        // 0: 顶部奇遇，1: 中央小怪，2: 左侧小怪，3: 下方奇遇，4: 首领。
         if (current == 0 && key == 's') return 1;
         if (current == 1 && key == 'w') return 0;
         if (current == 1 && key == 'a') return 2;
@@ -149,26 +151,33 @@ namespace {
 }
 
 // ===========================================================================
-// 以下是修改后的 renderMainMap 函数（增加了地点描述）
+// 主城地图渲染（完全替换为 iostream.txt 的样式）
 // ===========================================================================
 void renderMainMap(int playerX, int playerY, const Player& player) {
     clearScreen();
     hideCursor();
     setColor(14); gotoxy(0, 0); std::cout << "【主城地图】";
-    drawBox(30, 3);
-    drawBox(5, 12);
-    drawBox(30, 12);
-    drawBox(55, 12);
-    drawBox(30, 21);
+
+    // 硬编码方框，绝对不会错位
+    drawBox(30, 3);  // 北塔
+    drawBox(5, 12);  // 西塔
+    drawBox(30, 12); // 城镇
+    drawBox(55, 12); // 东塔
+    drawBox(30, 21); // 南塔
+
     drawVLine(35, 7, 11);
     drawVLine(35, 16, 20);
     drawHLine(17, 29, 14);
     drawHLine(41, 54, 14);
+
+    // 绘制各个塔名称及完成状态
     drawNode(2, 0, playerX, playerY, 32, 4, "北塔", player.cleared[3]);
     drawNode(0, 2, playerX, playerY, 7, 13, "西塔", player.cleared[1]);
     drawNode(2, 2, playerX, playerY, 32, 13, "城镇");
     drawNode(4, 2, playerX, playerY, 57, 13, "东塔", player.cleared[0]);
     drawNode(2, 4, playerX, playerY, 32, 22, "南塔", player.cleared[2]);
+
+    // 操作提示
     setColor(13);
     gotoxy(0, 28);
     std::cout << "W↑ S↓ A← D→ 移动  |  1 进入地点  |  Q 保存并退出";
@@ -176,29 +185,15 @@ void renderMainMap(int playerX, int playerY, const Player& player) {
     gotoxy(0, 30);
     std::cout << "行动：";
 
-    // ----- 新增：显示当前位置描述 -----
-    gotoxy(0, 26);                     // 放在地图和操作提示之间
-    setColor(7);                       // 白色文字
-    if (playerX == 2 && playerY == 0) {
-        std::cout << "北塔：高耸的北塔，闪耀着赤红色的光芒";
-    }
-    else if (playerX == 0 && playerY == 2) {
-        std::cout << "西塔：静谧的西塔，流转着幽蓝色的水光";
-    }
-    else if (playerX == 2 && playerY == 2) {
-        std::cout << "城镇：繁华的精灵城镇，人来人往";
-    }
-    else if (playerX == 4 && playerY == 2) {
-        std::cout << "东塔：死寂的东塔，弥散着墨黑色的阴霾";
-    }
-    else if (playerX == 2 && playerY == 4) {
-        std::cout << "南塔：古老的南塔，缠绕着翠绿的藤蔓";
-    }
-    else {
-        // 如果玩家不在任何节点（初始或异常），清空该行
-        std::cout << "                                        ";
-    }
-    // ----- 新增结束 -----
+    // 当前位置描述
+    gotoxy(0, 26);
+    setColor(7);
+    if (playerX == 2 && playerY == 0) std::cout << "北塔：高耸的北塔，闪耀着赤红色的光芒";
+    else if (playerX == 0 && playerY == 2) std::cout << "西塔：静谧的西塔，流转着幽蓝色的水光";
+    else if (playerX == 2 && playerY == 2) std::cout << "城镇：繁华的精灵城镇，人来人往";
+    else if (playerX == 4 && playerY == 2) std::cout << "东塔：死寂的东塔，弥散着墨黑色的阴霾";
+    else if (playerX == 2 && playerY == 4) std::cout << "南塔：古老的南塔，缠绕着翠绿的藤蔓";
+    else std::cout << "                                        ";
 }
 
 bool exploreTower(Player& player, TowerDirection direction) {
@@ -213,7 +208,10 @@ bool exploreTower(Player& player, TowerDirection direction) {
     while (true) {
         int x, y; towerNodePosition(current, x, y);
         renderTowerMap(x, y, cleared, monsterWins >= 2);
+        
+        // 使用 _getch 按键，无需回车
         const char key = readMove();
+        
         if (key == 'q') return false;
         const int next = moveTowerNode(current, key);
         if (next == current) continue;
